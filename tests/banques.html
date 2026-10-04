@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Validation des banques de problèmes</title>
+</head>
+<body>
+  <h1>Validation des banques de problèmes</h1>
+  <p>Paramètres : <code>?fichier=paquets-1</code> (un seul fichier), <code>&amp;exemples=1</code> (un exemple par modèle), <code>&amp;tours=40</code>.</p>
+  <pre id="resultat">en cours…</pre>
+  <script src="../js/problemes/moteur.js"></script>
+  <script>
+  'use strict';
+  const FICHIERS = ['plusmoins-1', 'plusmoins-2', 'paquets-1', 'paquets-2', 'marche-1', 'marche-2', 'tictac-1', 'tictac-2', 'defi-1', 'defi-2'];
+  const params = new URLSearchParams(location.search);
+  const choisis = params.get('fichier') ? params.get('fichier').split(',') : FICHIERS;
+  const TOURS = parseInt(params.get('tours') || '40', 10);
+  const AVEC_EXEMPLES = params.get('exemples') === '1';
+  const chargement = { charges: [], absents: [], erreurs: [] };
+
+  // Fichier courant pendant le chargement, pour savoir d'où vient chaque modèle
+  const origine = {};
+  const ajouterOriginal = Problemes.ajouter;
+
+  function charger(nom) {
+    return new Promise(res => {
+      const s = document.createElement('script');
+      s.src = `../js/problemes/banques/${nom}.js`;
+      s.onload = () => { chargement.charges.push(nom); res(); };
+      s.onerror = () => { chargement.absents.push(nom); res(); };
+      document.body.append(s);
+    });
+  }
+  window.addEventListener('error', e => chargement.erreurs.push(`${e.filename ? e.filename.split('/').pop() : ''}:${e.lineno} ${e.message}`));
+
+  const LABELS_REQUIS = { pt: ['tout', 'p1', 'p2'], cmp: ['grand', 'petit'], grp: ['total', 'nb', 'taille'], fois: ['petit', 'grand'], frise: [] };
+
+  function lint(texte) {
+    const p = [];
+    if (/\s{2,}/.test(texte.replace(/ /g, ' '))) p.push('espaces doubles');
+    if (/ [.,](?!\d)/.test(texte)) p.push('espace avant . ou ,');
+    if (/\bde [aeiouéèêâîôûhAEIOUÉÈÊÂÎÔÛH]/.test(texte) && !/\bde (hauteur|haut|huit|huile)/.test(texte)) p.push('« de » + voyelle (élision ?)');
+    if (/\bque [aeiouéèêâîôûAEIOUÉÈÊÂÎÔÛ]/.test(texte)) p.push('« que » + voyelle (élision ?)');
+    if (/\bla [aeiouéèêâîôûAEIOUÉ]/.test(texte)) p.push('« la » + voyelle (élision ?)');
+    if (/\ble [aeiouéèêâîôûAEIOUÉ]/.test(texte)) p.push('« le » + voyelle (élision ?)');
+    if (/undefined|NaN|null|\[object/.test(texte)) p.push('valeur manquante');
+    if (/[{}]/.test(texte)) p.push('accolade non remplacée');
+    return p;
+  }
+
+  async function lancer() {
+    for (const f of choisis) {
+      Problemes.ajouter = (notion, modeles) => { modeles.forEach(m => { origine[m.id] = f; }); return ajouterOriginal(notion, modeles); };
+      await charger(f);
+    }
+    Problemes.ajouter = ajouterOriginal;
+
+    const erreurs = [], avertissements = [], exemples = [];
+    const stats = { total: 0, parNotion: {}, parStructure: {}, parNiveau: { 1: 0, 2: 0, 3: 0 }, parTheme: {} };
+    const ctx = { enfant: { n: 'Emma', g: 'f' }, amis: [{ n: 'Inès', g: 'f' }, { n: 'Hugo', g: 'm' }], pnj: { n: 'Zubi', g: 'm' } };
+
+    for (const notion of Problemes.NOTIONS) {
+      for (const m of Problemes.BANQUES[notion]) {
+        if (!origine[m.id]) continue;
+        stats.total++;
+        stats.parNotion[notion] = (stats.parNotion[notion] || 0) + 1;
+        stats.parStructure[m.structure] = (stats.parStructure[m.structure] || 0) + 1;
+        (m.themes || ['(aucun)']).forEach(t => { stats.parTheme[t] = (stats.parTheme[t] || 0) + 1; });
+        if (!m.themes || !m.themes.length) avertissements.push({ id: m.id, message: 'aucun thème' });
+        const niveaux = Problemes.niveauxDe(m);
+        let exemple = null;
+        for (const niv of niveaux) {
+          stats.parNiveau[niv]++;
+          let rates = 0;
+          const maxNombre = { valeur: 0 };
+          for (let i = 0; i < TOURS; i++) {
+            let p;
+            try {
+              p = Problemes.instancier(m, notion, niv, ctx, { piege: i % 3 === 0 });
+            } catch (e) {
+              erreurs.push({ id: m.id, niv, message: 'exception : ' + e.message });
+              break;
+            }
+            if (!p) { rates++; continue; }
+            if (!exemple && niv === niveaux[0]) exemple = p;
+            const textes = [...p.oral, p.reponse.juste, ...p.reponse.fausses, ...p.etapes.map(e => e.question || '')];
+            const tout = textes.join(' | ');
+            const pbs = new Set();
+            textes.forEach(t => lint(t).forEach(x => pbs.add(x)));
+            pbs.forEach(x => (x.includes('élision') ? avertissements : erreurs).push({ id: m.id, niv, message: x, exemple: tout }));
+            if (!p.question.trim().endsWith('?')) erreurs.push({ id: m.id, niv, message: 'la question ne finit pas par « ? »', exemple: p.question });
+            p.oral.slice(0, -1).forEach(o => { if (!/[.!]$/.test(o.trim())) erreurs.push({ id: m.id, niv, message: 'phrase sans point final', exemple: o }); });
+            if (p.reponse.fausses.length < 2) erreurs.push({ id: m.id, niv, message: 'il faut au moins 2 phrases fausses' });
+            if (new Set([p.reponse.juste, ...p.reponse.fausses]).size !== p.reponse.fausses.length + 1) erreurs.push({ id: m.id, niv, message: 'phrases réponse identiques', exemple: tout });
+            const rTexte = Problemes.formater(p.vals.r, p.formats.r || 'nombre');
+            if (!p.reponse.juste.includes(rTexte)) erreurs.push({ id: m.id, niv, message: 'la phrase juste ne contient pas le résultat ' + rTexte, exemple: p.reponse.juste });
+            for (const e of p.etapes) {
+              const o = e.op;
+              const calc = { '+': o.g + o.d, '−': o.g - o.d, '×': o.g * o.d, '÷': o.g / o.d }[o.signe];
+              if (calc !== o.r) erreurs.push({ id: m.id, niv, message: `calcul incohérent ${o.g} ${o.signe} ${o.d} ≠ ${o.r}` });
+              if (e.schema) {
+                for (const lab of LABELS_REQUIS[e.schema.forme] || []) if (!e.schema.labels[lab]) erreurs.push({ id: m.id, niv, message: `label de schéma manquant : ${lab}` });
+              }
+            }
+            if (p.etapes.length > 1) {
+              const e0 = p.etapes[0];
+              if (!e0.question || !e0.question.trim().endsWith('?')) erreurs.push({ id: m.id, niv, message: 'deux étapes : sousQuestion manquante ou sans « ? »' });
+              if ((e0.autresQuestions || []).length < 2) erreurs.push({ id: m.id, niv, message: 'deux étapes : il faut au moins 2 autresQuestions' });
+              if (!p.cartes.x || /undefined/.test(p.cartes.x)) erreurs.push({ id: m.id, niv, message: 'deux étapes : uniteX manquante' });
+            }
+            const manquantes = p.utiles.filter(k => !p.cartes[k]);
+            if (manquantes.length) erreurs.push({ id: m.id, niv, message: 'données sans carte : ' + manquantes });
+            for (const k of ['a', 'b', 'c', 'r', 'x']) if (p.vals[k] != null && (p.formats[k] || 'nombre') === 'nombre') maxNombre.valeur = Math.max(maxNombre.valeur, p.vals[k]);
+          }
+          if (rates > TOURS * 0.2) erreurs.push({ id: m.id, niv, message: `nombres impossibles à tirer (${rates}/${TOURS} échecs) : vérifier max/limites/nombres()` });
+          if (niv === 1 && maxNombre.valeur > 100) avertissements.push({ id: m.id, niv, message: `grade 1 avec un nombre jusqu'à ${maxNombre.valeur} (attendu ≤ 100)` });
+          if (niv === 2 && maxNombre.valeur > 1000) avertissements.push({ id: m.id, niv, message: `grade 2 avec un nombre jusqu'à ${maxNombre.valeur} (attendu ≤ 1 000)` });
+        }
+        if (AVEC_EXEMPLES && exemple) exemples.push(`[${m.id} ${m.structure}] ${exemple.oral.join(' ')} → ${exemple.etapes.map(e => `${e.op.g} ${e.op.signe} ${e.op.d} = ${e.op.r}`).join(' ; ')} | ✔ ${exemple.reponse.juste} | ✘ ${exemple.reponse.fausses.join(' / ')}`);
+      }
+    }
+    const uniques = (liste) => {
+      const vus = new Set();
+      return liste.filter(e => { const k = e.id + '|' + e.message; if (vus.has(k)) return false; vus.add(k); return true; });
+    };
+    const E = uniques(erreurs), A = uniques(avertissements);
+    const rapport = {
+      ok: E.length === 0 && chargement.erreurs.length === 0,
+      chargement, stats,
+      nbErreurs: E.length, erreurs: E.slice(0, 150),
+      nbAvertissements: A.length, avertissements: A.slice(0, 100),
+    };
+    if (AVEC_EXEMPLES) rapport.exemples = exemples;
+    document.getElementById('resultat').textContent = JSON.stringify(rapport, null, 1);
+  }
+  lancer();
+  </script>
+</body>
+</html>

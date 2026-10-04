@@ -1,0 +1,188 @@
+/* =========================================================================
+   Mission Galaxie — écrans du jeu (carte, interface par-dessus, dialogues, carnet, coach)
+   Utilise les jetons et composants de css/base.css.
+   ========================================================================= */
+
+html, body { margin: 0; height: 100%; }
+body { background: var(--nuit); color: var(--encre); font-family: var(--police); overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+input, select { -webkit-user-select: text; user-select: text; }
+#app { position: relative; min-height: 100%; }
+.ecran { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
+.petit { font-size: .92rem; color: var(--encre-douce); }
+.portrait svg { width: 100%; height: auto; display: block; }
+
+/* ---------- Carte du monde ---------- */
+.ecran-jeu { height: 100vh; height: 100dvh; overflow: hidden; position: relative; }
+.monde-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+.hud { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; padding: 12px; gap: 10px; }
+.hud > *, .hud button { pointer-events: auto; }
+.hud-haut { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.hud-planete { display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 999px; }
+.hud-vignette { width: 44px; height: 44px; display: block; flex: none; }
+.hud-vignette svg { width: 100%; height: 100%; display: block; }
+.hud-planete-textes { display: flex; flex-direction: column; line-height: 1.15; }
+.hud-planete-textes b { font-family: var(--police-titre); font-weight: 600; font-size: 1.1rem; }
+.hud-planete-textes span { font-size: .9rem; color: var(--encre-douce); }
+.hud-actions { display: flex; align-items: center; gap: 8px; }
+.hud-etoiles { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; font-weight: 700; font-size: 1.1rem; color: var(--moutarde-fonce); }
+.hud-etoiles-valeur { color: var(--encre); }
+.hud-bouton { background: var(--papier); color: var(--encre); border-bottom: 3px solid var(--ligne); }
+.hud-objectif {
+  align-self: center; display: flex; align-items: center; gap: 10px; padding: 6px 14px; border-radius: 999px;
+  background: rgba(251, 247, 239, .92); color: var(--encre); font-size: .95rem; font-weight: 700;
+}
+.hud-objectif-barre { width: 110px; height: 10px; border-radius: 999px; background: var(--ligne); overflow: hidden; }
+.hud-objectif-barre span { display: block; height: 100%; background: var(--sarcelle); border-radius: 999px; transition: width .4s; }
+
+.hud-bulle {
+  margin-top: auto; align-self: center; width: min(720px, 100%);
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--rayon);
+  background: var(--papier); border-bottom: 4px solid var(--ligne);
+}
+.hud-bulle-portrait { width: 64px; height: 64px; flex: none; }
+.hud-bulle-portrait svg { width: 100%; height: 100%; display: block; }
+.hud-bulle-texte { flex: 1; margin: 0; font-size: 1.15rem; line-height: 1.4; }
+.hud-bulle-actions { display: flex; flex-direction: column; gap: 6px; }
+
+/* ---------- Dialogues avec les habitants ---------- */
+.dialogue-fond { position: fixed; inset: 0; z-index: 40; display: flex; align-items: flex-end; justify-content: center; padding: 16px; background: rgba(35, 38, 58, .25); }
+.dialogue {
+  position: relative; width: min(760px, 100%); display: flex; gap: 16px; align-items: flex-start;
+  padding: 16px 18px; border-radius: var(--rayon); border-bottom: 4px solid var(--ligne);
+}
+.dialogue-portrait { width: 110px; height: 110px; flex: none; }
+.dialogue-portrait svg { width: 100%; height: 100%; display: block; }
+.dialogue-corps { flex: 1; min-width: 0; }
+.dialogue-nom { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.dialogue-nom b { font-family: var(--police-titre); font-weight: 600; font-size: 1.35rem; }
+.dialogue-role { color: var(--encre-douce); font-size: .95rem; }
+.dialogue-texte { font-size: 1.2rem; line-height: 1.5; margin: 6px 0 10px; padding-right: 44px; }
+.dialogue-progres { display: flex; gap: 6px; margin-bottom: 12px; }
+.dialogue-progres span { width: 16px; height: 16px; border-radius: 50%; background: var(--ligne); }
+.dialogue-progres span.fait { background: var(--sarcelle); }
+.dialogue-boutons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.dialogue-ecouter { position: absolute; top: 12px; right: 12px; }
+.portrait-modal { width: 120px; margin: 0 auto; }
+.portrait-modal svg { width: 100%; height: auto; display: block; }
+
+/* ---------- Coffres ---------- */
+.modal-coffre .en-ligne { display: flex; align-items: center; justify-content: center; gap: 12px; font-size: 2.2rem; font-weight: 700; margin: 10px 0 14px; flex-wrap: wrap; }
+.modal-coffre .clavier { margin: 0 auto; }
+.reponse-ligne { min-width: 110px; height: 68px; padding: 0 12px; border: 3px solid var(--corail); border-radius: var(--rayon-petit); background: #fff; display: inline-grid; place-items: center; }
+.reponse-ligne.juste { border-color: var(--sarcelle); background: var(--sarcelle-claire); }
+.reponse-ligne.corrige { border-color: var(--sarcelle); color: var(--sarcelle-fonce); }
+.coffre-pastilles { display: flex; justify-content: center; gap: 8px; margin-top: 14px; }
+.coffre-pastilles span { width: 18px; height: 18px; border-radius: 50%; background: var(--ligne); }
+.coffre-pastilles span.juste { background: var(--sarcelle); }
+.coffre-pastilles span.rate { background: var(--rouge); }
+.coffre-message { font-weight: 700; }
+
+/* ---------- Écran titre, histoire, voyage ---------- */
+.ecran-titre, .ecran-histoire, .ecran-voyage, .ecran-config { align-items: center; justify-content: center; padding: 20px 16px; background: var(--nuit); }
+.titre-contenu { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; color: var(--papier); }
+.portrait-titre { width: 190px; }
+.titre-jeu { font-family: var(--police-titre); font-weight: 700; font-size: clamp(2.4rem, 7vw, 3.6rem); margin: 0; letter-spacing: .5px; }
+.titre-sous { margin: 0; font-size: 1.2rem; color: var(--moutarde); font-weight: 700; }
+.titre-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; align-items: center; }
+.titre-etoiles { color: var(--papier); display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+
+.histoire { width: min(620px, 100%); padding: 24px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.histoire-page { display: flex; flex-direction: column; align-items: center; gap: 12px; min-height: 300px; }
+.portrait-histoire { width: 170px; }
+.histoire-texte { font-size: 1.35rem; line-height: 1.55; margin: 0; }
+.histoire-points { display: flex; gap: 8px; }
+.histoire-points span { width: 12px; height: 12px; border-radius: 50%; background: var(--ligne); }
+.histoire-points span.actif { background: var(--corail); }
+
+.voyage { display: flex; flex-direction: column; align-items: center; gap: 20px; color: var(--papier); }
+.voyage-fusee { color: var(--corail); animation: voyage-fusee 2.4s ease-in forwards; }
+@keyframes voyage-fusee { 0% { transform: translateY(40px); } 30% { transform: translateY(0) rotate(-6deg); } 100% { transform: translateY(-140vh) rotate(0); } }
+.voyage-texte { font-family: var(--police-titre); font-size: 1.6rem; font-weight: 600; }
+
+.ecran-espace { background: var(--nuit); color: var(--papier); }
+.espace-intro { text-align: center; margin: 0 16px 10px; color: var(--papier-2); }
+.espace-planetes { display: grid; gap: 14px; padding: 8px 16px 24px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); max-width: 1100px; width: 100%; margin: 0 auto; }
+.espace-planete {
+  position: relative; border: 0; border-radius: var(--rayon); padding: 14px; background: var(--papier); color: var(--encre);
+  border-bottom: 4px solid var(--ligne); display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+}
+.espace-planete.fermee { opacity: .55; }
+.espace-planete.ici { outline: 3px solid var(--moutarde); }
+.espace-vignette { width: 120px; height: 120px; display: block; }
+.espace-vignette svg { width: 100%; height: 100%; display: block; }
+.espace-nom { font-family: var(--police-titre); font-weight: 600; font-size: 1.15rem; }
+.espace-detail { font-size: .9rem; color: var(--encre-douce); }
+.espace-cadenas { position: absolute; top: 10px; right: 10px; color: var(--encre-douce); }
+.espace-ici { position: absolute; top: 10px; left: 10px; background: var(--moutarde); color: var(--encre); font-size: .8rem; font-weight: 700; border-radius: 999px; padding: 2px 10px; }
+
+.entete-simple { display: flex; align-items: center; gap: 14px; padding: 14px 18px; }
+.entete-simple h1 { margin: 0; font-family: var(--police-titre); font-weight: 600; font-size: 1.9rem; }
+.ecran-carnet, .ecran-coach { background: var(--papier-2); }
+
+/* ---------- Carnet ---------- */
+.carnet { display: flex; flex-direction: column; gap: 14px; padding: 0 16px 24px; max-width: 1100px; width: 100%; margin: 0 auto; }
+.carnet-onglets { align-self: center; }
+.carnet-contenu { display: flex; flex-direction: column; gap: 14px; }
+.carnet-section { padding: 16px; }
+.carnet-section h2 { margin: 0 0 10px; font-family: var(--police-titre); font-weight: 600; }
+.carnet-grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+.carnet-ami, .carnet-souvenir { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; padding: 10px 6px; border-radius: var(--rayon-petit); background: var(--papier-2); }
+.carnet-portrait { width: 72px; height: 72px; display: grid; place-items: center; color: var(--encre-douce); }
+.carnet-portrait svg { width: 100%; height: 100%; }
+.carnet-nom { font-weight: 700; }
+.carnet-role { font-size: .8rem; color: var(--encre-douce); }
+.inconnu { opacity: .55; }
+.carnet-grades { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.carnet-grade { padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+.carnet-grade-titre { display: flex; flex-direction: column; }
+.carnet-grade-titre b { font-family: var(--police-titre); font-weight: 600; font-size: 1.2rem; }
+.carnet-grade-titre span { color: var(--encre-douce); font-size: .9rem; }
+.carnet-grade-etoiles { color: var(--moutarde-fonce); display: flex; gap: 2px; }
+.barre-progres { height: 12px; border-radius: 999px; background: var(--ligne); overflow: hidden; }
+.barre-progres span { display: block; height: 100%; border-radius: 999px; background: var(--moutarde); }
+
+/* ---------- Configuration et coach ---------- */
+.config-carte { width: min(520px, 100%); padding: 24px 26px; text-align: center; }
+.portrait-config { width: 130px; margin: 0 auto; }
+.config-carte h1 { margin: 4px 0; font-family: var(--police-titre); font-weight: 700; font-size: 2.2rem; }
+.pour-adulte { display: inline-block; background: var(--moutarde); color: var(--encre); font-weight: 700; padding: 6px 14px; border-radius: 999px; }
+.config-carte .btn { width: 100%; margin-top: 8px; }
+.champ-bloc { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; text-align: left; }
+.champ-label { font-weight: 700; }
+.champ-aide { font-size: .9rem; color: var(--encre-douce); }
+.message-erreur { color: var(--rouge); font-weight: 700; min-height: 1.2em; margin: 4px 0; }
+.coach-grille { display: grid; gap: 16px; padding: 0 16px 28px; grid-template-columns: minmax(0, 1fr); max-width: 1100px; width: 100%; margin: 0 auto; }
+@media (min-width: 900px) { .coach-grille { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
+.bloc { padding: 18px 20px; }
+.bloc h2 { margin: 0 0 10px; font-family: var(--police-titre); font-weight: 600; }
+.bloc h3 { margin: 16px 0 6px; }
+.liste-amis { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.ligne-ami { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; width: 100%; }
+.ligne-ami .champ { flex: 1; min-width: 140px; width: auto; }
+.ligne-code { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.ligne-code .champ { flex: 1; min-width: 140px; width: auto; }
+.conseil-voix { background: var(--papier-2); border-radius: var(--rayon-petit); padding: 10px 12px; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.stat { background: var(--papier-2); border-radius: var(--rayon-petit); padding: 10px 6px; display: flex; flex-direction: column; align-items: center; }
+.stat-val { font-family: var(--police-titre); font-weight: 700; font-size: 1.5rem; color: var(--lavande-fonce); }
+.stat-label { font-size: .85rem; color: var(--encre-douce); }
+.lignes-stats { display: flex; flex-direction: column; gap: 8px; }
+.ligne-stat { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 60px; gap: 10px; align-items: center; }
+.barre-stat { height: 12px; border-radius: 999px; background: var(--ligne); overflow: hidden; }
+.barre-stat span { display: block; height: 100%; background: var(--corail); border-radius: 999px; }
+.ligne-stat-val { text-align: right; font-weight: 700; }
+.modal-code .cadenas { color: var(--encre-douce); }
+.code-points { display: flex; gap: 14px; justify-content: center; margin: 12px 0 18px; }
+.code-points span { width: 18px; height: 18px; border-radius: 50%; border: 3px solid var(--lavande); }
+.code-points span.plein { background: var(--lavande); }
+.modal-code .clavier { margin: 0 auto; }
+
+@media (max-width: 600px) {
+  .hud-planete-textes span { display: none; }
+  .dialogue { flex-direction: column; align-items: center; text-align: center; }
+  .dialogue-portrait { width: 84px; height: 84px; }
+  .dialogue-texte { padding-right: 0; }
+  .dialogue-boutons { justify-content: center; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

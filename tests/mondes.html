@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Validation des planètes</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #f4efe6; margin: 12px; }
+    canvas { display: block; margin: 8px 0; image-rendering: pixelated; border: 1px solid #ccc; }
+    .legende span { display: inline-block; margin: 2px 8px 2px 0; font-size: 12px; }
+    .legende i { display: inline-block; width: 12px; height: 12px; vertical-align: middle; margin-right: 4px; }
+  </style>
+</head>
+<body>
+  <h1 id="titre">Validation des planètes</h1>
+  <p>Paramètre : <code>?monde=plusmoins</code> (sinon toutes). La mini-carte montre les zones fermées en gris.</p>
+  <div id="cartes"></div>
+  <pre id="resultat">en cours…</pre>
+  <script src="../js/monde/mondes.js"></script>
+  <script>
+  'use strict';
+  const IDS = ['plusmoins', 'paquets', 'marche', 'tictac', 'defi'];
+  const params = new URLSearchParams(location.search);
+  const choisis = params.get('monde') ? params.get('monde').split(',') : IDS;
+  const erreursChargement = [];
+  window.addEventListener('error', e => erreursChargement.push(`${e.filename ? e.filename.split('/').pop() : ''}:${e.lineno} ${e.message}`));
+
+  const COULEURS = {
+    '.': '#d9c79a', ',': '#cbb987', ':': '#f3e6c4', 'f': '#c9d98f', '~': '#5fa8d3', '=': '#a0703c', '#': '#7a6a5a',
+    'T': '#4f8a4b', 'R': '#8d8d8d', 'C': '#9b7fd1', 'H': '#c0583f', 'X': '#5a4630', 'M': '#e08a2e', 'B': '#e23d3d', 'P': '#e23d3d',
+  };
+
+  function charger(id) {
+    return new Promise(res => {
+      const s = document.createElement('script');
+      s.src = `../js/monde/mondes/${id}.js`;
+      s.onload = res;
+      s.onerror = () => { erreursChargement.push(`fichier absent : ${id}.js`); res(); };
+      document.body.append(s);
+    });
+  }
+
+  const RE_EMOJI = /[\u{1F300}-\u{1FAFF}☀-➿]/u;
+
+  function valider(m) {
+    const E = [], A = [];
+    const W = Mondes.LARGEUR, H = Mondes.HAUTEUR;
+    const carte = (m.carte || []).map(l => l.split(''));
+    if (carte.length !== H) E.push(`la carte doit avoir ${H} lignes (et non ${carte.length})`);
+    carte.forEach((l, y) => { if (l.length !== W) E.push(`ligne ${y} : ${l.length} caractères au lieu de ${W}`); });
+    if (E.length) return { E, A };
+    const legende = Object.keys(Mondes.LEGENDE);
+    carte.forEach((l, y) => l.forEach((c, x) => { if (!legende.includes(c)) E.push(`caractère inconnu « ${c} » en (${x},${y})`); }));
+    for (let x = 0; x < W; x++) for (const y of [0, H - 1]) if (Mondes.marchable(carte[y][x])) E.push(`bord ouvert en (${x},${y})`);
+    for (let y = 0; y < H; y++) for (const x of [0, W - 1]) if (Mondes.marchable(carte[y][x])) E.push(`bord ouvert en (${x},${y})`);
+
+    for (const champ of ['id', 'nom', 'notion', 'description', 'arrivee']) if (!m[champ]) E.push(`champ manquant : ${champ}`);
+    if (!Number.isInteger(m.ordre)) E.push('champ manquant : ordre');
+
+    // Entités
+    const occupe = new Map();
+    const entites = [];
+    const poser = (type, e) => {
+      if (!Number.isInteger(e.x) || !Number.isInteger(e.y)) { E.push(`${type} ${e.id || ''} : coordonnées invalides`); return; }
+      const k = e.x + ',' + e.y;
+      if (occupe.has(k)) E.push(`${type} ${e.id || ''} : case (${k}) déjà occupée par ${occupe.get(k)}`);
+      occupe.set(k, type + ' ' + (e.id || ''));
+      const c = carte[e.y] && carte[e.y][e.x];
+      if (!['.', ',', ':', 'f'].includes(c)) E.push(`${type} ${e.id || ''} : doit être sur un sol marchable (. , : f), trouvé « ${c} » en (${k})`);
+      entites.push({ type, ...e });
+    };
+    if (!m.depart) E.push('depart manquant');
+    if (!m.fusee) E.push('fusee manquante');
+    else poser('fusee', { id: 'fusee', zone: 1, ...m.fusee });
+    const pnj = m.pnj || [];
+    if (pnj.length !== 12) E.push(`il faut 12 habitants (pnj), trouvé ${pnj.length}`);
+    const ids = new Set();
+    pnj.forEach(p => {
+      if (ids.has(p.id)) E.push('id en double : ' + p.id);
+      ids.add(p.id);
+      for (const champ of ['id', 'nom', 'g', 'role', 'bonjour', 'merci']) if (!p[champ]) E.push(`pnj ${p.id} : champ manquant ${champ}`);
+      if (!['f', 'm'].includes(p.g)) E.push(`pnj ${p.id} : g doit être 'f' ou 'm'`);
+      const ap = p.apparence || {};
+      if (!Mondes.ESPECES.includes(ap.espece)) E.push(`pnj ${p.id} : espèce inconnue ${ap.espece}`);
+      if (!/^#[0-9a-fA-F]{6}$/.test(ap.couleur || '')) E.push(`pnj ${p.id} : couleur hexadécimale attendue (#rrggbb)`);
+      if (!Mondes.ACCESSOIRES.includes(ap.accessoire === undefined ? null : ap.accessoire)) E.push(`pnj ${p.id} : accessoire inconnu ${ap.accessoire}`);
+      const th = Mondes.THEMES[m.notion] || [];
+      if (!p.themes || !p.themes.length) E.push(`pnj ${p.id} : themes manquants`);
+      (p.themes || []).forEach(t => { if (!th.includes(t)) E.push(`pnj ${p.id} : thème « ${t} » hors vocabulaire ${m.notion} (${th.join(', ')})`); });
+      [p.bonjour, p.merci, p.role].forEach(t => { if (t && RE_EMOJI.test(t)) E.push(`pnj ${p.id} : pas d'emoji dans les textes`); });
+      poser('pnj', p);
+    });
+    const coffres = m.coffres || [];
+    if (coffres.length < 3 || coffres.length > 5) E.push(`il faut 3 à 5 coffres, trouvé ${coffres.length}`);
+    coffres.forEach(c => { if (!c.souvenir || !c.souvenir.id || !c.souvenir.nom) E.push(`coffre ${c.id} : souvenir {id, nom} manquant`); poser('coffre', c); });
+    const panneaux = m.panneaux || [];
+    if (panneaux.length < 3 || panneaux.length > 6) E.push(`il faut 3 à 6 panneaux, trouvé ${panneaux.length}`);
+    panneaux.forEach(p => { if (!p.texte) E.push(`panneau ${p.id} : texte manquant`); else if (RE_EMOJI.test(p.texte)) E.push(`panneau ${p.id} : pas d'emoji`); poser('panneau', p); });
+
+    // Zones
+    const zones = m.zones || [];
+    if (zones.length !== 4) E.push(`il faut 4 zones, trouvé ${zones.length}`);
+    zones.forEach((z, i) => {
+      if (z.id !== i + 1) E.push(`zones : les id doivent être 1, 2, 3, 4 dans l'ordre`);
+      if (!z.nom) E.push(`zone ${z.id} : nom manquant`);
+      if (i === 0 && z.requis !== 0) E.push('zone 1 : requis doit valoir 0');
+      if (i > 0) {
+        if (!(z.requis > zones[i - 1].requis)) E.push(`zone ${z.id} : requis doit augmenter`);
+        if (!z.portes || !z.portes.length) E.push(`zone ${z.id} : portes manquantes`);
+        if (!z.message) E.push(`zone ${z.id} : message manquant`);
+        (z.portes || []).forEach(([x, y]) => { if (!['B', 'P'].includes(carte[y] && carte[y][x])) E.push(`zone ${z.id} : la porte (${x},${y}) doit être un « B » ou un « P » sur la carte`); });
+        const dispo = pnj.filter(p => p.zone < z.id).length * 4;
+        if (dispo < z.requis) E.push(`zone ${z.id} : requis ${z.requis} mais seulement ${dispo} problèmes disponibles avant`);
+      }
+    });
+    const portesDeclarees = new Set(zones.flatMap(z => (z.portes || []).map(([x, y]) => x + ',' + y)));
+    carte.forEach((l, y) => l.forEach((c, x) => { if ((c === 'B' || c === 'P') && !portesDeclarees.has(x + ',' + y)) E.push(`porte (${x},${y}) non déclarée dans une zone`); }));
+    for (let z = 1; z <= 4; z++) {
+      const n = pnj.filter(p => p.zone === z).length;
+      if (n !== 3) E.push(`zone ${z} : il faut 3 habitants, trouvé ${n}`);
+    }
+    if (pnj.filter(p => p.chef).length !== 1 || !(pnj.find(p => p.chef) || {}).zone === 4) E.push('il faut exactement 1 chef (chef: true), dans la zone 4');
+    if ((pnj.find(p => p.chef) || {}).zone !== 4) E.push('le chef doit être dans la zone 4');
+    [...coffres, ...panneaux].forEach(e => { if (!e.zone) A.push(`${e.id} : zone non précisée`); });
+
+    // Accessibilité zone par zone (les entités bloquent le passage)
+    const bloque = new Set(entites.map(e => e.x + ',' + e.y));
+    function atteignables(ouvertes) {
+      const c = carte.map(l => l.slice());
+      zones.filter(z => ouvertes.includes(z.id)).forEach(z => (z.portes || []).forEach(([x, y]) => { c[y][x] = Mondes.OUVERTURE[c[y][x]] || c[y][x]; }));
+      const vu = new Set();
+      if (!m.depart) return vu;
+      const pile = [[m.depart.x, m.depart.y]];
+      const k0 = m.depart.x + ',' + m.depart.y;
+      if (!Mondes.marchable(c[m.depart.y][m.depart.x]) || bloque.has(k0)) { E.push('depart : case non marchable ou occupée'); return vu; }
+      vu.add(k0);
+      while (pile.length) {
+        const [x, y] = pile.pop();
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx, ny = y + dy, k = nx + ',' + ny;
+          if (vu.has(k) || nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          if (!Mondes.marchable(c[ny][nx]) || bloque.has(k)) continue;
+          vu.add(k);
+          pile.push([nx, ny]);
+        }
+      }
+      return vu;
+    }
+    const accessible = (vu, e) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => vu.has((e.x + dx) + ',' + (e.y + dy)));
+    for (let k = 1; k <= 4; k++) {
+      const ouvertes = zones.filter(z => z.id <= k).map(z => z.id);
+      const vu = atteignables(ouvertes);
+      entites.forEach(e => {
+        const z = e.type === 'fusee' ? 1 : e.zone || 1;
+        const ok = accessible(vu, e);
+        if (z <= k && !ok) E.push(`zones 1 à ${k} ouvertes : ${e.type} ${e.id} (zone ${z}) inaccessible`);
+        if (z > k && ok) E.push(`zones 1 à ${k} ouvertes : ${e.type} ${e.id} de la zone ${z} est déjà accessible (la porte ne bloque pas)`);
+      });
+      if (k === 1 && m.depart && m.fusee && Math.abs(m.depart.x - m.fusee.x) + Math.abs(m.depart.y - m.fusee.y) !== 1) E.push('depart doit être collé (4 voisins) à la fusée');
+    }
+    const tout = atteignables([1, 2, 3, 4]);
+    let marchables = 0;
+    carte.forEach((l, y) => l.forEach((c, x) => { if (Mondes.marchable(c)) marchables++; }));
+    if (tout.size < marchables * 0.75) A.push(`seulement ${tout.size} cases atteignables sur ${marchables} marchables`);
+    return { E, A, stats: { marchables, atteignables: tout.size, pnj: pnj.length, coffres: coffres.length, panneaux: panneaux.length } };
+  }
+
+  function dessiner(m) {
+    const T = 12;
+    const cv = document.createElement('canvas');
+    cv.width = Mondes.LARGEUR * T; cv.height = Mondes.HAUTEUR * T;
+    const ctx = cv.getContext('2d');
+    (m.carte || []).forEach((l, y) => l.split('').forEach((c, x) => {
+      ctx.fillStyle = COULEURS[c] || '#000';
+      ctx.fillRect(x * T, y * T, T, T);
+    }));
+    const zoneCouleur = ['#000', '#fff', '#ffe066', '#74c0fc', '#f783ac'];
+    const point = (e, couleur, r) => { ctx.fillStyle = couleur; ctx.beginPath(); ctx.arc(e.x * T + T / 2, e.y * T + T / 2, r, 0, 7); ctx.fill(); ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke(); };
+    (m.pnj || []).forEach(p => point(p, zoneCouleur[p.zone] || '#000', 5));
+    (m.coffres || []).forEach(c => point(c, '#f59f00', 4));
+    (m.panneaux || []).forEach(p => point(p, '#495057', 3));
+    if (m.fusee) point(m.fusee, '#e03131', 6);
+    if (m.depart) point(m.depart, '#2f9e44', 4);
+    const bloc = document.createElement('div');
+    bloc.innerHTML = `<h2>${m.nom || m.id}</h2>`;
+    bloc.append(cv);
+    document.getElementById('cartes').append(bloc);
+  }
+
+  (async () => {
+    for (const id of choisis) await charger(id);
+    const rapport = { ok: true, chargement: erreursChargement, mondes: {} };
+    for (const id of choisis) {
+      const m = Mondes.get(id);
+      if (!m) { rapport.mondes[id] = { erreurs: ['monde non enregistré (Mondes.ajouter) ou absent'] }; rapport.ok = false; continue; }
+      const r = valider(m);
+      dessiner(m);
+      rapport.mondes[id] = { nbErreurs: r.E.length, erreurs: [...new Set(r.E)].slice(0, 80), avertissements: r.A, stats: r.stats };
+      if (r.E.length) rapport.ok = false;
+    }
+    if (erreursChargement.length) rapport.ok = false;
+    document.getElementById('resultat').textContent = JSON.stringify(rapport, null, 1);
+  })();
+  </script>
+</body>
+</html>

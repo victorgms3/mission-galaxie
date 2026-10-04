@@ -1,27 +1,54 @@
 /* Service worker : permet à Mission Galaxie de fonctionner sans connexion. */
-const VERSION = 'mission-galaxie-v1';
+const VERSION = 'mission-galaxie-v2-1';
 const FICHIERS = [
   './',
   'index.html',
-  'css/style.css',
-  'js/ui.js',
-  'js/storage.js',
-  'js/voix.js',
-  'js/sons.js',
-  'js/alvin.js',
-  'js/problemes.js',
-  'js/recompenses.js',
-  'js/mission.js',
-  'js/ecrans.js',
-  'js/app.js',
   'manifest.webmanifest',
+  'css/base.css',
+  'css/resolution.css',
+  'css/jeu.css',
+  'js/core/ui.js',
+  'js/core/storage.js',
+  'js/core/icones.js',
+  'js/core/voix.js',
+  'js/core/sons.js',
+  'js/art/art.js',
+  'js/art/alvin.js',
+  'js/problemes/moteur.js',
+  'js/problemes/banques/plusmoins-1.js',
+  'js/problemes/banques/plusmoins-2.js',
+  'js/problemes/banques/paquets-1.js',
+  'js/problemes/banques/paquets-2.js',
+  'js/problemes/banques/marche-1.js',
+  'js/problemes/banques/marche-2.js',
+  'js/problemes/banques/tictac-1.js',
+  'js/problemes/banques/tictac-2.js',
+  'js/problemes/banques/defi-1.js',
+  'js/problemes/banques/defi-2.js',
+  'js/monde/mondes.js',
+  'js/monde/mondes/plusmoins.js',
+  'js/monde/mondes/paquets.js',
+  'js/monde/mondes/marche.js',
+  'js/monde/mondes/tictac.js',
+  'js/monde/mondes/defi.js',
+  'js/monde/moteur.js',
+  'js/resolution/widgets.js',
+  'js/resolution/resolution.js',
+  'js/jeu/ecrans.js',
+  'js/jeu/jeu.js',
+  'js/jeu/app.js',
   'icons/icon.svg',
   'icons/icon-192.png',
   'icons/icon-512.png',
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(FICHIERS)).then(() => self.skipWaiting()));
+  // addAll échoue si un seul fichier manque : on met en cache ce qui existe
+  e.waitUntil(
+    caches.open(VERSION)
+      .then(c => Promise.all(FICHIERS.map(f => c.add(f).catch(() => null))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', e => {
