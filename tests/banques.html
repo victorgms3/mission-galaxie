@@ -39,10 +39,11 @@
     const p = [];
     if (/\s{2,}/.test(texte.replace(/ /g, ' '))) p.push('espaces doubles');
     if (/ [.,](?!\d)/.test(texte)) p.push('espace avant . ou ,');
-    if (/\bde [aeiouéèêâîôûhAEIOUÉÈÊÂÎÔÛH]/.test(texte) && !/\bde (hauteur|haut|huit|huile)/.test(texte)) p.push('« de » + voyelle (élision ?)');
-    if (/\bque [aeiouéèêâîôûAEIOUÉÈÊÂÎÔÛ]/.test(texte)) p.push('« que » + voyelle (élision ?)');
-    if (/\bla [aeiouéèêâîôûAEIOUÉ]/.test(texte)) p.push('« la » + voyelle (élision ?)');
-    if (/\ble [aeiouéèêâîôûAEIOUÉ]/.test(texte)) p.push('« le » + voyelle (élision ?)');
+    // (?<!\p{L}) : vrai début de mot, même après une lettre accentuée (« bibliothèque a » n'est pas « que a »)
+    if (/(?<!\p{L})de [aeiouéèêâîôûhAEIOUÉÈÊÂÎÔÛH]/u.test(texte) && !/(?<!\p{L})de (hauteur|haut|huit|huile)/u.test(texte)) p.push('« de » + voyelle (élision ?)');
+    if (/(?<!\p{L})que [aeiouéèêâîôûAEIOUÉÈÊÂÎÔÛ]/u.test(texte)) p.push('« que » + voyelle (élision ?)');
+    if (/(?<!\p{L})la [aeiouéèêâîôûAEIOUÉ]/u.test(texte)) p.push('« la » + voyelle (élision ?)');
+    if (/(?<!\p{L})le [aeiouéèêâîôûAEIOUÉ]/u.test(texte)) p.push('« le » + voyelle (élision ?)');
     if (/undefined|NaN|null|\[object/.test(texte)) p.push('valeur manquante');
     if (/[{}]/.test(texte)) p.push('accolade non remplacée');
     return p;
