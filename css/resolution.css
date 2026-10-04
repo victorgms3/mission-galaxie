@@ -31,6 +31,7 @@
 #resolution [hidden] { display: none !important; }
 #resolution h2 { font-family: var(--police-titre); font-weight: 600; margin: 0; }
 .res-ic { display: inline-flex; align-items: center; justify-content: center; line-height: 0; flex: none; }
+#resolution .insecable { white-space: nowrap; } /* « a-t-elle » n'est jamais coupé en fin de ligne */
 .res-ic svg { display: block; }
 
 /* ---------- Boutons de repli (si base.css est absent) ---------- */
@@ -111,8 +112,11 @@
 .res-enonce-texte .phrase.cliquable { background: var(--papier-2); cursor: pointer; box-shadow: 0 2px 0 var(--ligne); }
 .res-enonce-texte .phrase.en-lecture { background: var(--moutarde-claire); }
 .res-enonce-texte .phrase.question-trouvee { background: var(--lavande-claire); color: var(--lavande-fonce); box-shadow: none; }
-.res-enonce-texte .donnee { font-weight: 700; padding: 0 3px; border-radius: 6px; white-space: nowrap; transition: background-color .2s; }
+.res-enonce-texte .donnee { position: relative; font-weight: 700; border-radius: 6px; white-space: nowrap; transition: background-color .2s; }
+/* marge négative = même mise en page avec ou sans fond (pas d'espace parasite avant le point) */
+.res-enonce-texte .donnee.cliquable, .res-enonce-texte .donnee.trouvee { padding: 0 3px; margin: 0 -3px; }
 .res-enonce-texte .donnee.cliquable { cursor: pointer; background: #fff; box-shadow: inset 0 -4px 0 var(--moutarde); color: var(--encre); }
+.res-enonce-texte .donnee.cliquable::after { content: ''; position: absolute; inset: -9px -5px; } /* cible tactile ≥ 48 px */
 .res-enonce-texte .donnee.trouvee { background: var(--sarcelle-claire); color: var(--sarcelle-fonce); box-shadow: inset 0 -4px 0 var(--sarcelle); }
 .res-enonce-texte .donnee.barree { color: var(--encre-douce); text-decoration: line-through 3px var(--rouge); opacity: .75; }
 .res-notes:empty { display: none; }
@@ -222,8 +226,8 @@
 .schema-grp .grp-boites { align-items: stretch; }
 .schema-grp .grp-boite { min-height: 82px; padding: 6px 4px; }
 .schema-grp .grp-boite .case { min-width: 0; width: 100%; }
-.schema-grp .grp-boites.serrees .res-carte.dans-case { font-size: 16px; padding: 2px 4px; }
-.schema-grp .grp-boites.serrees .res-carte.dans-case.inconnue { font-size: 22px; min-width: 30px; }
+.schema-grp .grp-boites.serrees .res-carte.dans-case { font-size: 19px; padding: 2px 6px; min-width: 34px; }
+.schema-grp .grp-boites.serrees .res-carte.dans-case.inconnue { font-size: 22px; min-width: 34px; }
 .schema-grp .copie, .schema-fois .copie { font-weight: 700; font-size: 20px; color: #6aa9a0; }
 .grp-points { align-self: center; font-size: 28px; font-weight: 700; color: var(--encre-douce); padding: 0 2px; }
 .grp-legende { display: flex; align-items: center; gap: 4px; font-size: 16px; font-weight: 700; color: var(--encre-douce); margin: -2px 0 0 6px; }
@@ -234,6 +238,11 @@
 .schema-fois .nom-ligne { padding-right: 6px; }
 .schema-fois .segment { min-height: 74px; }
 .schema-fois .seg-copie { border-style: dashed; }
+.schema-fois .segment .case { min-width: 0; width: 100%; }
+/* La carte de la petite barre peut dépasser à droite (rien à côté sur cette ligne) plutôt que d'être coupée */
+.schema-fois .seg-petit { align-items: flex-start; }
+.schema-fois .seg-petit .case { width: max-content; min-width: 100%; position: relative; z-index: 1; }
+.schema-fois .seg-petit .res-carte.dans-case { white-space: nowrap; }
 .fois-case { display: flex; align-items: center; gap: 6px; padding-left: 6px; }
 .fois-case .case { min-width: 64px; }
 .fois-total { display: flex; justify-content: center; margin-top: -4px; }
@@ -258,7 +267,7 @@
 .horloge-cadran { fill: #fff; stroke: var(--encre-douce); stroke-width: 3.5; }
 .horloge-trait { stroke: #b5aa98; stroke-width: 2; stroke-linecap: round; }
 .horloge-trait.gros { stroke: var(--encre-douce); stroke-width: 3.5; }
-.horloge-chiffre { font: 700 11px var(--police); fill: var(--encre); }
+.horloge-chiffre { font: 700 10px var(--police); fill: var(--encre); }
 .horloge-heure { stroke: var(--encre); stroke-width: 6; stroke-linecap: round; }
 .horloge-minute { stroke: var(--corail); stroke-width: 4; stroke-linecap: round; }
 .horloge-centre { fill: var(--encre); }
@@ -297,8 +306,9 @@
 .pose > .pose-entete.col-1 { color: var(--corail-fonce); }
 .pose > .pose-entete.col-2 { color: var(--lavande-fonce); }
 .pose > .pose-entete.col-3 { color: var(--moutarde-fonce); }
+.pose > .pose-retenue::after { content: ''; position: absolute; inset: -6px -5px; } /* cible tactile ≥ 48 px */
 .pose > .pose-retenue {
-  height: 34px; width: 70%; justify-self: center; padding: 0;
+  position: relative; height: 38px; width: 80%; justify-self: center; padding: 0;
   border: 2px dashed var(--ligne); border-radius: 10px; background: transparent;
   font: 700 19px/1 var(--police); color: var(--corail-fonce);
 }
@@ -350,7 +360,7 @@
 .res-table-grille { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: column; grid-template-rows: repeat(5, auto); gap: 6px 10px; }
 .res-table-grille.longue { grid-auto-flow: row; grid-template-rows: none; }
 .res-table-ligne {
-  min-height: 44px; border-radius: 10px; border: 2px solid var(--ligne); background: #fff;
+  min-height: 48px; border-radius: 10px; border: 2px solid var(--ligne); background: #fff;
   font: 700 20px/1 var(--police); padding: 6px 10px;
 }
 .res-table-ligne.choisie { background: var(--lavande-claire); border-color: var(--lavande); color: var(--lavande-fonce); }
@@ -359,9 +369,9 @@
 .res-aide-horloge-infos { display: flex; flex-direction: column; gap: 8px; }
 .res-aide-horloge-infos p { margin: 0; font-size: 19px; }
 .res-aide-horloge-infos b { font-size: 22px; }
-.res-pas-boutons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.res-pas-boutons { display: grid; grid-template-columns: repeat(4, auto); gap: 8px; }
 .res-pas { min-height: 48px; padding: 6px 12px; font-size: 18px; }
-.res-recommencer { align-self: flex-start; min-height: 44px; padding: 4px 6px; font-size: 17px; }
+.res-recommencer { align-self: flex-start; min-height: 48px; padding: 4px 6px; font-size: 17px; }
 
 .res-pm-reserve { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; }
 .res-pm-choix, .res-pm-jeton { padding: 0; border: 0; background: none; line-height: 0; }
@@ -374,20 +384,21 @@
 .res-argent.piece.v2:not(.cts) { background: #e9b949; border-color: #dfe3e8; }
 .res-argent.piece.cts.v1, .res-argent.piece.cts.v2, .res-argent.piece.cts.v5 { background: #d99a6c; border-color: #c07f52; width: 48px; height: 48px; font-size: 14px; }
 .res-argent.piece.cts.v100 { background: #dfe3e8; border-color: #e9b949; }
-.res-argent.billet { width: 92px; height: 50px; border-radius: 8px; border-width: 0 0 4px; font-size: 18px; color: #fff; }
+.res-argent.billet { width: 80px; height: 50px; border-radius: 8px; border-width: 0 0 4px; font-size: 18px; color: #fff; }
 .res-argent.billet.v5 { background: #8e9aab; border-color: #727e8f; }
 .res-argent.billet.v10 { background: #d9776f; border-color: #bb5b53; }
 .res-argent.billet.v20 { background: #6f98d1; border-color: #557cb3; }
 .res-argent.billet.v50 { background: #e69a4c; border-color: #c97d33; }
 .res-argent.billet.v100 { background: #5fae7b; border-color: #47905f; }
+.res-pm-entete { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 16px; margin: -4px 0 8px; }
+.res-pm-entete .res-outil-titre { margin: 0; }
 .res-pm-plateau {
   display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center;
-  min-height: 74px; margin-top: 12px; padding: 10px; border-radius: var(--rayon-petit);
+  min-height: 70px; margin-top: 10px; padding: 8px; border-radius: var(--rayon-petit);
   background: #fff; border: 2.5px dashed var(--ligne);
 }
-.res-pm-plateau .res-argent { transform: scale(.85); }
 .res-pm-vide { font-size: 16px; color: var(--encre-douce); }
-.res-pm-total { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; font-size: 20px; }
+.res-pm-total { display: flex; align-items: center; gap: 8px; font-size: 20px; }
 .res-pm-total b { font-size: 24px; }
 
 /* ---------- Choix d'une phrase (plan, réponse) ---------- */
@@ -437,7 +448,7 @@
 :where(#resolution .secoue) { animation: res-secoue .45s ease; }
 @keyframes res-clignote { 50% { background-color: var(--moutarde-claire); box-shadow: 0 0 0 4px var(--moutarde); } }
 @keyframes res-secoue { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
-@keyframes res-pop { from { transform: scale(.96); opacity: .4; } to { transform: scale(1); opacity: 1; } }
+@keyframes res-pop { from { transform: scale(.96); } to { transform: scale(1); } }
 @keyframes res-saute { 30% { transform: translateY(-12px); } 60% { transform: translateY(0); } 80% { transform: translateY(-4px); } }
 @keyframes res-etoile { from { transform: scale(0) rotate(-40deg); opacity: 0; } }
 @keyframes res-confetti {
@@ -454,13 +465,21 @@
     grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto;
     grid-template-areas: "enonce" "alvin" "atelier"; overflow-y: auto; align-content: start; gap: 12px; padding: 12px 14px 18px;
   }
-  .res-atelier { overflow: visible; }
+  /* min-height: auto : chaque bloc garde la hauteur de son contenu, c'est .res-corps qui défile */
+  .res-atelier { overflow: visible; min-height: auto; }
+  .res-alvin { min-height: auto; }
   .res-enonce { max-height: none; }
   .res-pnj-textes span { display: none; }
   .res-etapes li { height: 38px; min-width: 38px; padding: 0 7px; }
   .res-alvin-portrait { width: 78px; }
 }
+/* Paysage (2 colonnes) : clavier un peu plus compact pour que l'aide ouverte (horloge, porte-monnaie) tienne sans défiler */
+@media (orientation: landscape) and (min-width: 861px) {
+  #resolution .res-clavier { gap: 8px; }
+  #resolution .res-clavier .touche { height: 56px; }
+}
 @media (max-width: 560px) {
+  .res-pas-boutons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #resolution { font-size: 18px; }
   .res-haut { padding: 8px 10px; gap: 8px; }
   .res-enonce-texte { font-size: 22px; }

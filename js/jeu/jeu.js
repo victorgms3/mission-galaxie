@@ -365,14 +365,21 @@ const Jeu = (() => {
     if (!D.debloquees.includes(suivante.id)) D.debloquees.push(suivante.id);
     Store.sauver();
     Sons.victoire();
+    const texte = planetePrete(suivante)
+      ? `Grâce à cette pièce, ma fusée peut voler jusqu'à la ${suivante.nom} ! Retourne à la fusée quand tu veux partir.`
+      : `Grâce à cette pièce, ma fusée pourra voler jusqu'à la ${suivante.nom}. Ses habitants préparent encore leurs problèmes : elle ouvrira très bientôt !`;
     UI.modal({
       titre: 'Une pièce pour la fusée !',
-      contenu: [h('div', { class: 'portrait-modal', html: portraitAlvin('content') }),
-        h('p', null, `Grâce à cette pièce, ma fusée peut voler jusqu'à la ${suivante.nom} ! Retourne à la fusée quand tu veux partir.`)],
+      contenu: [h('div', { class: 'portrait-modal', html: portraitAlvin('content') }), h('p', null, texte)],
       boutons: [{ label: 'Génial !', classe: 'principal', action: fin }],
       fermable: false,
     });
-    if (R().alvinParle) Voix.dire(`Grâce à cette pièce, ma fusée peut voler jusqu'à la ${suivante.nom} !`);
+    if (R().alvinParle) Voix.dire(texte);
+  }
+
+  // Une planète n'est jouable que si sa notion a des problèmes (les banques arrivent par vagues)
+  function planetePrete(m) {
+    return !!m && (Problemes.BANQUES[m.notion] || []).length > 0;
   }
 
   // ---------------------------------------------------------------------------
@@ -487,5 +494,5 @@ const Jeu = (() => {
     }, minutes * 60000);
   }
 
-  return { ouvrirPlanete, fermer, debug: () => ({ moteur, monde, etat }) };
+  return { ouvrirPlanete, fermer, planetePrete, debug: () => ({ moteur, monde, etat }) };
 })();

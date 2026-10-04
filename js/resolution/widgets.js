@@ -135,8 +135,8 @@ const Widgets = (() => {
     }
     if (chiffres) {
       for (let i = 1; i <= 12; i++) {
-        const [x, y] = pt(i * 30, 27);
-        s += `<text class="horloge-chiffre" x="${x}" y="${(+y + 4.2).toFixed(2)}" text-anchor="middle">${i}</text>`;
+        const [x, y] = pt(i * 30, 29);
+        s += `<text class="horloge-chiffre" x="${x}" y="${(+y + 3.6).toFixed(2)}" text-anchor="middle">${i}</text>`;
       }
     }
     if (inconnue) {
@@ -469,7 +469,7 @@ const Widgets = (() => {
     const cadran = h('div', { class: 'res-horloge-grande' });
     const lHeure = h('b'), lEcoule = h('b');
     const maj = () => {
-      cadran.innerHTML = horloge(courant, 176, { chiffres: true });
+      cadran.innerHTML = horloge(courant, 156, { chiffres: true });
       lHeure.textContent = F(courant, 'heure');
       lEcoule.textContent = ecoule ? F(ecoule, 'duree') : '0 min';
     };
@@ -552,13 +552,14 @@ const Widgets = (() => {
     }, jeton(m))));
     maj();
     return h('div', { class: 'res-porte-monnaie' },
-      h('p', { class: 'res-outil-titre' }, 'Le porte-monnaie'),
-      reserve, plateau,
-      h('div', { class: 'res-pm-total' }, h('span', null, 'Total : '), lTotal,
-        h('button', {
-          class: 'btn discret', type: 'button',
-          onclick: () => { clic(); plateau.querySelectorAll('.res-pm-jeton').forEach(t => t.remove()); total = 0; maj(); },
-        }, 'Tout enlever')));
+      h('div', { class: 'res-pm-entete' },
+        h('p', { class: 'res-outil-titre' }, 'Le porte-monnaie'),
+        h('div', { class: 'res-pm-total' }, h('span', null, 'Total : '), lTotal,
+          h('button', {
+            class: 'btn discret', type: 'button',
+            onclick: () => { clic(); plateau.querySelectorAll('.res-pm-jeton').forEach(t => t.remove()); total = 0; maj(); },
+          }, 'Tout enlever'))),
+      reserve, plateau);
   }
 
   // ---------------------------------------------------------------------------

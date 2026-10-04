@@ -27,6 +27,17 @@ const Resolution = (() => {
     return a;
   };
   const son = nom => { if (typeof Sons !== 'undefined' && Sons[nom]) Sons[nom](); };
+  // Ajoute des enfants à un élément existant (ignore null/false, aplatit les tableaux, comme UI.h)
+  const garnir = (el, ...enfants) => {
+    for (const e of enfants.flat(Infinity)) if (e != null && e !== false) el.append(e);
+    return el;
+  };
+  // Typographie française à l'affichage : espace insécable avant ? ! : ; » (et après «), et mots à trait
+  // d'union jamais coupés en fin de ligne (« a-t-elle », « après-midi »). typo() renvoie des nœuds pour UI.h / garnir.
+  const espaces = t => String(t).replace(/ ([?!:;»])/g, ' $1').replace(/« /g, '« ');
+  const typo = t => espaces(t).split(/(\S+-\S+)/)
+    .map((m, i) => (i % 2 ? h('span', { class: 'insecable' }, m) : m))
+    .filter(m => m !== '');
 
   const ETAPES = {
     lire: { icone: 'oreille', nom: 'Je lis' },
@@ -76,6 +87,7 @@ const Resolution = (() => {
   }
 
   function parler(texte, opts) {
+    if (ui && ui.enonce) ui.enonce.finLecture(); // une nouvelle parole interrompt la lecture karaoké
     if (typeof Voix !== 'undefined') Voix.dire(texte, opts);
   }
 
@@ -101,7 +113,8 @@ const Resolution = (() => {
   function dit(message, { humeur = null, parle = true, indice = true } = {}) {
     const c = ui && ui.coin;
     if (!c) return;
-    c.texte.textContent = message;
+    UI.vider(c.texte);
+    garnir(c.texte, typo(message));
     c.bulle.classList.remove('res-pop');
     void c.bulle.offsetWidth;
     c.bulle.classList.add('res-pop');
@@ -168,7 +181,8 @@ const Resolution = (() => {
 
   function fermer() {
     jeton++;
-    if (typeof Voix !== 'undefined') Voix.stop();
+    // on ne coupe la voix que si un panneau était ouvert (le jeu appelle aussi fermer() à vide)
+    if ((P || ui) && typeof Voix !== 'undefined') Voix.stop();
     document.querySelectorAll('.res-fantome').forEach(f => f.remove());
     if (ui && ui.racine) ui.racine.remove();
     const reste = document.getElementById('resolution');
@@ -255,7 +269,13 @@ const Resolution = (() => {
   }
 
   function consigne(icone, texte) {
-    return h('p', { class: 'res-consigne' }, h('span', { class: 'res-consigne-icone' }, ic(icone, 26)), h('span', null, texte));
+    return h('p', { class: 'res-consigne' }, h('span', { class: 'res-consigne-icone' }, ic(icone, 26)), h('span', null, typo(texte)));
+  }
+
+  // Rappel d'une question (encadré lavande) : un titre en petites capitales puis la question
+  function rappel(titre, question, classe = '') {
+    return h('div', { class: 'res-rappel-question' + (classe ? ' ' + classe : '') },
+      h('span', { class: 'res-rappel-titre' }, titre), h('span', null, typo(question)));
   }
 
   // ---------- L'énoncé ----------
@@ -264,7 +284,7 @@ const Resolution = (() => {
     const phrasesEls = def.phrases.map((ph, i) => {
       const el = h('span', { class: 'phrase' + (ph.question ? ' est-question' : ''), 'data-i': String(i) });
       for (const s of ph.segs) {
-        if (s.t != null) el.append(s.t);
+        if (s.t != null) garnir(el, typo(s.t));
         else el.append(h('span', { class: 'donnee', 'data-k': s.k }, Problemes.texteDonnee(s)));
       }
       corps.append(el, ' ');
@@ -278,20 +298,25 @@ const Resolution = (() => {
       question: () => phrasesEls.find(p => p.classList.contains('est-question')),
       donnees: () => [...corps.querySelectorAll('.donnee')],
       lire(onFin) {
-        btnEcouter.classList.add('actif');
         parler(def.oral, {
           onSegment: i => phrasesEls.forEach((p, k) => p.classList.toggle('en-lecture', k === i)),
-          onFin: () => { btnEcouter.classList.remove('actif'); phrasesEls.forEach(p => p.classList.remove('en-lecture')); if (onFin) onFin(); },
+          onFin: () => { api.finLecture(); if (onFin) onFin(); },
         });
+        btnEcouter.classList.add('actif');
+      },
+      finLecture() {
+        btnEcouter.classList.remove('actif');
+        phrasesEls.forEach(p => p.classList.remove('en-lecture'));
       },
       reinitialiser() {
-        phrasesEls.forEach(p => p.classList.remove('cliquable', 'res-clignote', 'en-lecture'));
+        api.finLecture();
+        phrasesEls.forEach(p => p.classList.remove('cliquable', 'res-clignote'));
         api.donnees().forEach(d => d.classList.remove('cliquable', 'res-clignote'));
       },
       ajouterNote(question, carte) {
         notes.append(h('div', { class: 'res-note res-apparait' },
           h('span', { class: 'res-note-titre' }, ic('coche', 18), 'Étape 1'),
-          h('span', { class: 'res-note-q' }, question),
+          h('span', { class: 'res-note-q' }, typo(question)),
           h('span', { class: 'res-carte x petite' }, carte)));
       },
     };
@@ -348,10 +373,12 @@ const Resolution = (() => {
   }
 
   // ---------- Les infos utiles ----------
-  function carteInfo(k, classe = '') {
+  // court = n'afficher que le nombre (case étroite : l'unité est rappelée par l'étiquette du schéma)
+  function carteInfo(k, classe = '', court = false) {
     const def = P.def;
     const inconnue = k === '?';
-    return h('span', { class: 'res-carte ' + (inconnue ? 'inconnue ' : k === 'x' ? 'x ' : '') + classe, 'data-k': k }, inconnue ? '?' : def.cartes[k]);
+    const texte = inconnue ? '?' : court ? F(def.vals[k], def.formats[k]) : def.cartes[k];
+    return h('span', { class: 'res-carte ' + (inconnue ? 'inconnue ' : k === 'x' ? 'x ' : '') + classe, 'data-k': k }, texte);
   }
 
   function plateauInfos(cles, { vide = 'Tes infos utiles apparaîtront ici.', nouvelles = [] } = {}) {
@@ -386,10 +413,14 @@ const Resolution = (() => {
       const k = d.dataset.k;
       d.classList.remove('cliquable', 'res-clignote');
       if (besoin.has(k)) {
+        const deja = P.trouvees.has(k);
         P.trouvees.add(k);
         son('bien');
-        d.classList.add('trouvee');
-        plateau.ajouter(k);
+        // le même nombre peut apparaître deux fois dans l'énoncé : on marque toutes ses occurrences
+        E.donnees().forEach(x => {
+          if (x.dataset.k === k) { x.classList.remove('cliquable', 'res-clignote'); x.classList.add('trouvee'); }
+        });
+        if (!deja) plateau.ajouter(k);
         const reste = [...besoin].filter(x => !P.trouvees.has(x)).length;
         if (!reste) {
           P.verrou = true;
@@ -408,14 +439,17 @@ const Resolution = (() => {
   }
 
   // ---------- Le plan (problèmes à deux étapes) ----------
+  // Liste de phrases à choisir (plan, réponse) ; renvoie { el, bonne } (bonne = bouton de la bonne phrase)
   function listeChoix(options, classe, surChoix) {
-    const liste = h('div', { class: 'res-choix-phrases' });
+    const el = h('div', { class: 'res-choix-phrases' });
+    let bonne = null;
     for (const o of options) {
-      const btn = h('button', { class: classe, type: 'button', onclick: () => surChoix(o, btn) }, o.t);
-      liste.append(h('div', { class: 'res-ligne-choix' }, btn,
+      const btn = h('button', { class: classe, type: 'button', onclick: () => surChoix(o, btn) }, typo(o.t));
+      if (o.ok) bonne = btn;
+      el.append(h('div', { class: 'res-ligne-choix' }, btn,
         h('button', { class: 'btn-rond petit', type: 'button', 'aria-label': 'Écouter cette phrase', onclick: () => parler(o.t) }, ic('haut-parleur', 20))));
     }
-    return liste;
+    return { el, bonne };
   }
 
   function etapePlan() {
@@ -424,14 +458,14 @@ const Resolution = (() => {
     const liste = listeChoix(options, 'res-phrase-choix choix-plan', choisir);
     ui.atelier.append(
       consigne('boussole', "Que faut-il chercher d'abord ?"),
-      h('div', { class: 'res-rappel-question' }, h('span', { class: 'res-rappel-titre' }, 'La grande question'), def.question),
+      rappel('La grande question', def.question),
       h('p', { class: 'res-explication' }, 'Ce problème se résout en deux étapes. Pour répondre à la grande question, il manque un nombre : il faut le trouver d’abord.'),
-      liste);
+      liste.el);
     dit("Ce problème se fait en deux étapes ! Pour répondre à la grande question, il faut d'abord trouver autre chose. Que faut-il chercher d'abord ?");
     P.indice = () => donnerIndice([
       'Relis la grande question. Quel nombre te manque pour pouvoir y répondre ?',
       `Il faut d'abord savoir : ${e0.question}`,
-    ], () => liste.querySelectorAll('.choix-plan').forEach(b => { if (b.textContent === e0.question) b.classList.add('res-clignote'); }));
+    ], () => { if (liste.bonne) liste.bonne.classList.add('res-clignote'); });
 
     function choisir(o, btn) {
       if (P.verrou || btn.disabled) return;
@@ -461,6 +495,7 @@ const Resolution = (() => {
     const val = { a: def.vals.a, b: def.vals.b, c: def.vals.c, '?': def.vals.r };
     const cases = {};
     const extras = {};
+    const courts = new Set(); // cases trop étroites pour la carte entière
     const caseEl = slot => { const c = h('div', { class: 'case', 'data-slot': slot }); cases[slot] = c; return c; };
     const etiquette = t => (t ? h('span', { class: 'etiquette-seg' }, t) : null);
     const segment = (slot, classe, label) => h('div', { class: 'segment ' + classe }, caseEl(slot), etiquette(label));
@@ -489,6 +524,7 @@ const Resolution = (() => {
       const nbVal = S.slots.nb === '?' ? null : val[S.slots.nb];
       const k = nbVal && nbVal <= 10 ? nbVal : null;
       const nBoites = k || 4;
+      if (nBoites > 6) courts.add('taille');
       const boites = h('div', { class: 'rangee grp-boites' + (nBoites > 6 ? ' serrees' : '') });
       extras.copies = { taille: [] };
       for (let i = 0; i < nBoites; i++) {
@@ -556,14 +592,14 @@ const Resolution = (() => {
           : f === 'heure' ? Widgets.horloge(def.vals[k], 58) : Widgets.horloge(null, 58);
       }
     }
-    return { el, cases, maj };
+    return { el, cases, maj, courts };
   }
 
   function schemaRempli(S) {
     const sch = dessinerSchema(S);
     for (const [slot, k] of Object.entries(S.slots)) {
       sch.cases[slot].classList.add('remplie');
-      sch.cases[slot].append(carteInfo(k, 'dans-case'));
+      sch.cases[slot].append(carteInfo(k, 'dans-case', sch.courts.has(slot)));
       sch.maj(slot, k);
     }
     sch.el.classList.add('compact');
@@ -664,7 +700,7 @@ const Resolution = (() => {
       UI.vider(c);
       const k = placement[slot];
       c.classList.toggle('remplie', !!k);
-      if (k) c.append(carteInfo(k, 'dans-case'));
+      if (k) c.append(carteInfo(k, 'dans-case', sch.courts.has(slot)));
       sch.maj(slot, k);
     }
     function retirer(slot) {
@@ -848,14 +884,13 @@ const Resolution = (() => {
       const utilisees = new Set([def.etapes[0].op.gk, def.etapes[0].op.dk]);
       const cles = e === 0 ? def.utiles.slice() : ['x', ...def.utiles.filter(k => !utilisees.has(k))];
       aide = [
-        h('div', { class: 'res-rappel-question' + (e === 0 ? '' : ' grande') },
-          h('span', { class: 'res-rappel-titre' }, e === 0 ? 'Étape 1 : on cherche' : 'Étape 2 : la grande question'), et.question),
+        rappel(e === 0 ? 'Étape 1 : on cherche' : 'Étape 2 : la grande question', et.question, e === 0 ? '' : 'grande'),
         plateauInfos(cles, { nouvelles: e === 0 ? [] : ['x'] }).el,
       ];
     } else {
       aide = P.schemaFait ? schemaRempli(et.schema) : plateauInfos(def.utiles).el;
     }
-    ui.atelier.append(consigne('plus', 'Quelle opération faut-il faire ?'), aide, boutons, ligne);
+    garnir(ui.atelier, consigne('plus', 'Quelle opération faut-il faire ?'), aide, boutons, ligne);
     if (P.deux) dit(e === 0 ? `Pour savoir « ${et.question} », quelle opération faut-il faire ?` : 'Maintenant, la grande question ! Quelle opération faut-il faire ?');
     else if (P.schemaFait) dit("Quelle opération faut-il faire ? Regarde ton schéma pour t'aider.");
     else dit(signes.length === 2 ? 'Quelle opération faut-il faire : une addition ou une soustraction ?' : 'Quelle opération faut-il faire ?');
@@ -934,8 +969,8 @@ const Resolution = (() => {
     }
 
     const titre = w.type === 'pose' ? `Pose et calcule : ${expr}` : w.type === 'temps' ? 'Calcule, puis écris les heures et les minutes.' : 'Calcule.';
-    const sousTitre = P.deux ? h('div', { class: 'res-rappel-question petite' }, h('span', { class: 'res-rappel-titre' }, `Étape ${e + 1}`), et.question) : null;
-    ui.atelier.append(consigne('calcul', titre), sousTitre,
+    const sousTitre = P.deux ? rappel(`Étape ${e + 1}`, et.question, 'petite') : null;
+    garnir(ui.atelier, consigne('calcul', titre), sousTitre,
       h('div', { class: 'res-calcul res-calcul-' + w.type }, w.el, clavier),
       zoneOutils, panneau);
     dit(w.type === 'pose'
@@ -995,14 +1030,14 @@ const Resolution = (() => {
     const unite = der.unite && der.op.formats.r === 'nombre' ? ' ' + der.unite : '';
     ui.atelier.append(
       consigne('crayon', 'Quelle phrase répond à la question ?'),
-      h('div', { class: 'res-rappel-question' }, h('span', { class: 'res-rappel-titre' }, 'La question'), def.question),
+      rappel('La question', def.question),
       h('p', { class: 'res-resultat' }, 'Ton résultat : ', h('b', null, F(der.op.r, der.op.formats.r) + unite)),
-      liste);
+      liste.el);
     dit('Quelle phrase répond à la question ? Tu peux écouter chaque phrase avec le haut-parleur.');
     P.indice = () => donnerIndice([
       'Relis la question : ' + def.question,
       'Cherche la phrase qui parle de la même chose que la question.',
-    ], () => liste.querySelectorAll('.phrase-reponse').forEach(b => { if (b.textContent === def.reponse.juste) b.classList.add('res-clignote'); }));
+    ], () => { if (liste.bonne) liste.bonne.classList.add('res-clignote'); });
 
     function choisir(o, btn) {
       if (P.verrou || btn.disabled) return;
@@ -1046,16 +1081,30 @@ const Resolution = (() => {
       h('div', { class: 'res-fin-etoiles', 'aria-label': `${etoiles} étoile${etoiles > 1 ? 's' : ''} sur 3` },
         [1, 2, 3].map(i => h('span', { class: 'res-etoile ' + (i <= etoiles ? 'pleine' : 'vide'), style: { animationDelay: (0.1 + i * 0.22) + 's' }, html: Widgets.etoile() }))),
       h('div', { class: 'res-fin-ops' }, ops.map(o => h('span', null, o))),
-      h('p', { class: 'res-fin-phrase' }, def.reponse.juste),
+      h('p', { class: 'res-fin-phrase' }, typo(def.reponse.juste)),
       h('p', { class: 'res-fin-merci' }, merci + (encouragement ? ' ' + encouragement : '')),
       h('button', { class: 'btn principal grand', type: 'button', 'data-action': 'continuer', onclick: terminer }, 'Continuer', ic('suivant')));
     const fond = h('div', { class: 'res-fond res-fin-fond' }, carte);
     ui.racine.append(fond);
     dit(`${titre} ${def.reponse.juste}`, { humeur: 'content', indice: false, parle: false });
-    if (UI.confettis) UI.confettis(fond, 26);
+    confettis(fond, 26);
     son('victoire');
     for (let i = 1; i <= etoiles; i++) plusTard(() => son('etoile'), 420 + i * 230);
     if (R().alvinParle) parler(`${titre} ${def.reponse.juste} ${encouragement}`);
+  }
+
+  // Confettis plats aux couleurs de la palette (chacun se retire seul)
+  function confettis(parent, n) {
+    const couleurs = ['#e9b949', '#ef7b5a', '#2a9d8f', '#7b6ee6', '#8ecae6'];
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, d = 120 + Math.random() * 220;
+      const c = h('span', { class: 'confetti', style: { background: couleurs[i % couleurs.length], animationDelay: (Math.random() * 0.15).toFixed(2) + 's' } });
+      c.style.setProperty('--x', (Math.cos(a) * d).toFixed(0) + 'px');
+      c.style.setProperty('--y', (Math.sin(a) * d - 60).toFixed(0) + 'px');
+      c.style.setProperty('--r', (Math.random() * 720 - 360).toFixed(0) + 'deg');
+      parent.append(c);
+      setTimeout(() => c.remove(), 1700);
+    }
   }
 
   function terminer() {
@@ -1091,6 +1140,7 @@ const Resolution = (() => {
   return {
     lancer, fermer, debug,
     actif: () => !!P,
-    regler({ tempo } = {}) { if (tempo > 0) TEMPO = tempo; },
+    // tempo multiplie tous les délais : 1 = normal, 0.05 = tests rapides, 0 = immédiat (tests en temps virtuel)
+    regler({ tempo } = {}) { if (typeof tempo === 'number' && tempo >= 0 && Number.isFinite(tempo)) TEMPO = tempo; },
   };
 })();

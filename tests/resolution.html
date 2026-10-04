@@ -17,13 +17,14 @@
   <!--
     Paramètres :
       ?exemple=ex-GT&niveau=1          lance un exemple de tests/exemples.js (niveau = grade 1, 2 ou 3)
-      &auto=1                          résout automatiquement (bon chemin) et écrit le rapport dans <pre id="resultat">
+      &auto=1                          résout automatiquement (bon chemin) et écrit le rapport JSON dans la zone « resultat »
       &erreurs=1 | &indices=1 | &passer=1 (grade 3 : saute le schéma puis se trompe d'opération) | &glisse=1 (glisser-déposer)
       &tous=1                          tous les exemples × tous les grades × (bon chemin, erreurs, indices, schéma passé), puis quitter/fermer
       &banque=paquets-1&n=20           résout automatiquement n problèmes tirés de cette banque, à chaque grade autorisé
       &etape=schema[&e=1]              s'arrête à cette étape (lire, question, infos, plan, schema, operation, calcul, reponse, fin)
          + &faux=1 (calcul faux une fois) &outil=1 (ouvre l'aide) &partiel=1 (une carte posée) &indice=1 (un indice) &passerChoix=1
-      &piege=1|0  &voix=1  &tempo=0.05
+      &piege=1|0  &voix=1  &tempo=0.05 (0 = délais nuls)  &vals=a:8,b:6 (valeurs imposées, pour les captures)
+      &art=factice                     portraits de tests/art-factice.js si js/art/art.js est absent
   -->
   <div id="toast" class="toast" role="status"></div>
   <pre id="resultat" hidden>en cours…</pre>
@@ -57,6 +58,10 @@
     Store.data.reglages.sons = prm('voix') === '1';
     Store.data.profil = { prenom: 'Léa', genre: 'f', amis: [] };
 
+    // &art=factice : utilise tests/art-factice.js si js/art/art.js n'est pas encore là
+    if (typeof Art === 'undefined' && prm('art') === 'factice') {
+      await new Promise(ok => { const s = document.createElement('script'); s.src = 'art-factice.js'; s.onload = ok; s.onerror = ok; document.head.append(s); });
+    }
     const CTX = { enfant: { n: 'Léa', g: 'f' }, pnj: { n: 'Zubi', g: 'm' }, amis: [] };
     const APPARENCE = { espece: 'bulle', couleur: '#6cc4a1', accessoire: 'chapeau' };
     const PNJ = { nom: 'Zubi', portrait: typeof Art !== 'undefined' && Art.portraitPNJ ? Art.portraitPNJ(APPARENCE) : '' };
@@ -68,12 +73,18 @@
       }
       return null;
     }
+    // &vals=a:8,b:6 : retire jusqu'à obtenir ces valeurs (pour des captures précises)
+    const voulu = prm('vals') ? Object.fromEntries(prm('vals').split(',').map(x => x.split(':')).map(([k, v]) => [k, +v])) : null;
     function fabriquer(m, notion, niveau, piege) {
-      for (let i = 0; i < 30; i++) {
+      let dernier = null;
+      for (let i = 0; i < (voulu ? 500 : 30); i++) {
         const p = Problemes.instancier(m, notion, niveau, CTX, piege == null ? {} : { piege });
-        if (p && (!piege || p.distracteur || m.sansPiege || i > 20)) return p;
+        if (!p) continue;
+        dernier = p;
+        if (voulu && !Object.entries(voulu).every(([k, v]) => p.vals[k] === v)) continue;
+        if (!piege || p.distracteur || m.sansPiege || i > 20) return p;
       }
-      return null;
+      return dernier;
     }
 
     // ------------------------------------------------------------------
@@ -107,6 +118,9 @@
       pointeur(carte, 'pointerup', bx, by, 9);
     }
     const touche = ch => taper($$('.clavier .touche').find(b => b.textContent === ch), 'touche ' + ch);
+    // l'affichage remplace certaines espaces par des espaces insécables (typographie française)
+    const norm = s => String(s).replace(/[  ]/g, ' ');
+    const memeTexte = (b, t) => norm(b.textContent) === norm(t);
     const valider = () => taper($('.clavier .touche.valider'), 'valider');
     const effacer = () => taper($('.clavier .touche.effacer'), 'effacer');
 
@@ -175,8 +189,8 @@
         case 'plan': {
           await indices();
           const q = p.etapes[0].question;
-          if (fauter) { taper($$('.choix-plan').find(b => b.textContent !== q), 'mauvais plan'); await pause(5); }
-          taper($$('.choix-plan').find(b => b.textContent === q), 'bon plan');
+          if (fauter) { taper($$('.choix-plan').find(b => !memeTexte(b, q)), 'mauvais plan'); await pause(5); }
+          taper($$('.choix-plan').find(b => memeTexte(b, q)), 'bon plan');
           return;
         }
         case 'schema': {
@@ -222,8 +236,8 @@
         }
         case 'reponse':
           await indices();
-          if (fauter) { taper($$('.phrase-reponse').find(b => b.textContent !== p.reponse.juste), 'mauvaise réponse'); await pause(5); }
-          taper($$('.phrase-reponse').find(b => b.textContent === p.reponse.juste), 'bonne réponse');
+          if (fauter) { taper($$('.phrase-reponse').find(b => !memeTexte(b, p.reponse.juste)), 'mauvaise réponse'); await pause(5); }
+          taper($$('.phrase-reponse').find(b => memeTexte(b, p.reponse.juste)), 'bonne réponse');
           return;
         default:
           throw new Error('étape inconnue : ' + d.etape);

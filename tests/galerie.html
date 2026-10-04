@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Galerie de l'art</title>
+  <link rel="stylesheet" href="../css/base.css">
+  <style>
+    body { margin: 0; padding: 14px 16px; background: #fbf7ef; color: #2d2a32; font: 14px/1.3 'Andika', 'Trebuchet MS', sans-serif; }
+    h1 { font: 600 20px 'Fredoka', sans-serif; margin: 0 0 8px; }
+    h2 { font: 600 15px 'Fredoka', sans-serif; margin: 0 0 6px; color: #6e6878; }
+    .grille { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+    .bloc { background: #f3ecdf; border-radius: 14px; padding: 10px 12px; }
+    canvas { display: block; border-radius: 10px; }
+    .rangee { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+    .portrait { width: 104px; text-align: center; font-size: 12px; color: #6e6878; }
+    .portrait svg { width: 100%; height: auto; display: block; }
+    .petit-portrait { width: 84px; }
+    .vignette { width: 84px; }
+    #scene { width: 860px; height: 470px; touch-action: none; }
+    #resultat { display: none; }
+    body.rapport #resultat { display: block; font: 12px monospace; white-space: pre-wrap; }
+    .cache { display: none !important; }
+  </style>
+</head>
+<body>
+  <!-- Paramètres : ?palette=plusmoins|paquets|marche|tictac|defi  &partie=1 (sol, objets, habitants) | 2 (Alvin, portraits, scène)  &rapport=1 -->
+  <h1 id="titre">Galerie</h1>
+  <div class="grille" id="partie1">
+    <div>
+      <div class="bloc"><h2>Sol : chemins, eau, falaises, ponts (= et cassé), fleurs, objets</h2><canvas id="sol"></canvas></div>
+      <div class="bloc" style="margin-top:14px"><h2>Objets hauts : T R C H X M P (2 variantes)</h2><canvas id="objets"></canvas></div>
+    </div>
+    <div>
+      <div class="bloc"><h2>Habitants : 6 espèces × couleurs × accessoires, marques ! et coche</h2><canvas id="habitants"></canvas></div>
+      <div class="bloc" style="margin-top:14px"><h2>Coffre fermé / ouvert, panneau, fusée, cible</h2><canvas id="entites"></canvas></div>
+    </div>
+  </div>
+  <div class="grille" id="partie2" style="margin-top:14px">
+    <div class="bloc"><h2>Alvin : 4 directions × 4 phases de marche (arrêt, ½, 1, 1½ case)</h2><canvas id="alvin"></canvas></div>
+    <div>
+      <div class="bloc"><h2>Portraits d'Alvin (Art.portraitAlvin) et Alvin.creer animé</h2><div class="rangee" id="portraits-alvin"></div></div>
+      <div class="bloc" style="margin-top:14px"><h2>Portraits des habitants et vignettes des planètes</h2><div class="rangee" id="portraits-pnj"></div><div class="rangee" id="vignettes" style="margin-top:8px"></div></div>
+    </div>
+    <div class="bloc"><h2>Scène rendue par le vrai moteur</h2><canvas id="scene"></canvas></div>
+  </div>
+  <pre id="resultat">en cours…</pre>
+  <script src="../js/monde/mondes.js"></script>
+  <script src="../js/art/art.js"></script>
+  <script src="../js/art/alvin.js"></script>
+  <script src="../js/monde/moteur.js"></script>
+  <script>
+  'use strict';
+  const params = new URLSearchParams(location.search);
+  const id = Art.PALETTES[params.get('palette')] ? params.get('palette') : 'plusmoins';
+  const pal = Art.PALETTES[id];
+  const partie = params.get('partie');
+  if (params.get('rapport')) document.body.classList.add('rapport');
+  if (partie === '1') document.getElementById('partie2').classList.add('cache');
+  if (partie === '2') document.getElementById('partie1').classList.add('cache');
+  document.getElementById('titre').textContent = `Galerie de l'art — palette « ${id} » (${pal.nom})`;
+  const erreurs = [];
+  window.addEventListener('error', e => erreurs.push(`${(e.filename || '').split('/').pop()}:${e.lineno} ${e.message}`));
+  const essayer = (nom, fn) => { try { return fn(); } catch (e) { erreurs.push(`${nom} : ${e.message}`); return null; } };
+
+  const graineCase = (x, y) => {                                   // même formule que le moteur
+    let h = Math.imul(x + 1, 374761393) ^ Math.imul(y + 1, 668265263);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return (h ^ (h >>> 16)) >>> 0;
+  };
+  function toile(idc, l, h) {
+    const c = document.getElementById(idc), d = Math.min(2, window.devicePixelRatio || 1);
+    c.width = l * d; c.height = h * d; c.style.width = l + 'px'; c.style.height = h + 'px';
+    const ctx = c.getContext('2d');
+    ctx.scale(d, d);
+    return ctx;
+  }
+  const OBJ = 'TRCHXMP';
+  const sous = c => (c === 'P' ? ':' : OBJ.includes(c) ? '.' : c);
+  function sol(ctx, x, y, T, c, voisin, g) { ctx.save(); Art.dessinerSol(ctx, c, x, y, T, voisin || (() => c), pal, g); ctx.restore(); }
+  function bandeSol(ctx, x0, y0, n, T, ligne) { for (let i = 0; i < n; i++) sol(ctx, x0 + i * T, y0, T, i % 3 === 1 ? ',' : '.', null, graineCase(i, ligne)); }
+
+  // 1. Échantillon de sol (avec les objets triés par profondeur, comme le moteur)
+  const CARTE = [
+    '####.C,.~~..',
+    '####T..:==:R',
+    '#..#.,.:~~.:',
+    'f.:::::P~~::',
+    '~~.:f..:BB::',
+    '~~~:,.T.~~..',
+  ];
+  essayer('sol', () => {
+    const T = 60, H = CARTE.length, W = CARTE[0].length;
+    const ctx = toile('sol', W * T, H * T);
+    const en = (x, y) => CARTE[Math.max(0, Math.min(H - 1, y))][Math.max(0, Math.min(W - 1, x))];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) sol(ctx, x * T, y * T, T, sous(CARTE[y][x]), (dx, dy) => sous(en(x + dx, y + dy)), graineCase(x, y));
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const c = CARTE[y][x];
+      if (OBJ.includes(c)) { ctx.save(); Art.dessinerObjet(ctx, c, (x + 0.5) * T, (y + 1) * T, T, pal, 1.2, graineCase(x, y)); ctx.restore(); }
+    }
+  });
+
+  // 2. Objets hauts
+  essayer('objets', () => {
+    const T = 64, l = 100, n = OBJ.length;
+    const ctx = toile('objets', n * l, 2 * 112);
+    for (let r = 0; r < 2; r++) {
+      bandeSol(ctx, 0, r * 112 + 48, Math.ceil(n * l / T), T, r + 10);
+      for (let i = 0; i < n; i++) { ctx.save(); Art.dessinerObjet(ctx, OBJ[i], i * l + l / 2, r * 112 + 104, T, pal, 2.5 + r, graineCase(i * 7 + r, 40 + r)); ctx.restore(); }
+    }
+  });
+
+  // 3. Habitants
+  const ESPECES = ['bulle', 'antenne', 'robot', 'plume', 'champi', 'etoile'];
+  const COULEURS = ['#6cc4a1', '#ef9f7a', '#7ab0d9', '#d9825b', '#e3b04b', '#e59aa6', '#79b8d9', '#a596d9', '#b07aa1', '#3fa39a', '#7fae5e', '#e76f51'];
+  const ACCS = [[null, null, null, null, null, null], ['chapeau', 'noeud', 'lunettes', 'echarpe', 'couronne', 'tablier'],
+    ['casquette', 'tablier', 'couronne', 'chapeau', 'lunettes', 'noeud'], ['echarpe', 'casquette', 'noeud', 'tablier', 'chapeau', 'couronne']];
+  const MARQUES = ['!', null, 'ok', null];
+  essayer('habitants', () => {
+    const T = 64, l = 84, h = 122;
+    const ctx = toile('habitants', ESPECES.length * l, ACCS.length * h);
+    for (let r = 0; r < ACCS.length; r++) {
+      bandeSol(ctx, 0, r * h + h - 64, Math.ceil(ESPECES.length * l / T), T, r + 20);
+      ESPECES.forEach((espece, i) => {
+        const ent = { type: 'pnj', id: espece + r, apparence: { espece, couleur: COULEURS[(r * 6 + i * 5) % 12], accessoire: ACCS[r][i] }, marque: MARQUES[r] };
+        ctx.save(); Art.dessinerEntite(ctx, ent, i * l + l / 2, r * h + h - 6, T, pal, 0.5 + i); ctx.restore();
+      });
+    }
+  });
+
+  // 4. Coffres, panneau, fusée, cible
+  essayer('entites', () => {
+    const T = 64, l = 110;
+    const ctx = toile('entites', ESPECES.length * 84, 176);
+    bandeSol(ctx, 0, 112, 9, T, 30);
+    const liste = [{ type: 'coffre', ouvert: false }, { type: 'coffre', ouvert: true }, { type: 'panneau' }, { type: 'fusee' }];
+    liste.forEach((ent, i) => { ctx.save(); Art.dessinerEntite(ctx, ent, 52 + i * l, 170, T, pal, 0.3); ctx.restore(); });
+    ctx.save(); Art.dessinerCible(ctx, 52 + 4 * l, 138, T, 0.6, pal); ctx.restore();
+  });
+
+  // 5. Alvin : 4 directions × 4 phases
+  essayer('alvin', () => {
+    const T = 90, l = 118, h = 132, dirs = ['bas', 'haut', 'gauche', 'droite'], phases = [0, 0.5, 1, 1.5];
+    const ctx = toile('alvin', phases.length * l, dirs.length * h);
+    dirs.forEach((d, r) => {
+      for (let i = 0; i < 6; i++) sol(ctx, i * 80, r * h + h - 80, 80, i % 2 ? ',' : '.', null, graineCase(i, r + 50));
+      phases.forEach((p, i) => { ctx.save(); Art.dessinerAlvin(ctx, i * l + l / 2, r * h + h - 8, T, d, p, 0.4); ctx.restore(); });
+    });
+  });
+
+  // 6. Portraits et vignettes
+  const svgs = { alvin: 0, pnj: 0, vignettes: 0 };
+  const estSvg = s => typeof s === 'string' && s.startsWith('<svg') && s.endsWith('</svg>');
+  essayer('portraits', () => {
+    const zone = document.getElementById('portraits-alvin');
+    for (const hmr of ['normal', 'content', 'reflechit', 'triste']) {
+      const s = Art.portraitAlvin(hmr);
+      if (estSvg(s)) svgs.alvin++;
+      const d = document.createElement('div'); d.className = 'portrait'; d.innerHTML = s + hmr; zone.append(d);
+    }
+    const a = Alvin.creer(96);
+    Alvin.humeur(a, 'content');
+    const d = document.createElement('div'); d.className = 'portrait'; d.append(a, 'creer (content)'); zone.append(d);
+    const z2 = document.getElementById('portraits-pnj');
+    ESPECES.forEach((espece, i) => {
+      const s = Art.portraitPNJ({ espece, couleur: COULEURS[(i * 5 + 1) % 12], accessoire: ACCS[1 + (i % 3)][i] });
+      if (estSvg(s)) svgs.pnj++;
+      const e = document.createElement('div'); e.className = 'portrait petit-portrait'; e.innerHTML = s; z2.append(e);
+    });
+    const z3 = document.getElementById('vignettes');
+    for (const p of Object.keys(Art.PALETTES)) {
+      const s = Art.vignettePlanete(p);
+      if (estSvg(s)) svgs.vignettes++;
+      const e = document.createElement('div'); e.className = 'portrait vignette'; e.innerHTML = s + p; z3.append(e);
+    }
+  });
+
+  // 7. Scène avec le vrai moteur (le monde de la palette, ou Plus-ou-Moins habillé de la palette)
+  function charger(src) {
+    return new Promise(res => { const s = document.createElement('script'); s.src = src; s.onload = () => res(true); s.onerror = () => res(false); document.body.append(s); });
+  }
+  (async () => {
+    let scene = { ok: false };
+    if (partie !== '1') {
+      await charger(`../js/monde/mondes/${id}.js`);
+      let monde = Mondes.get(id);
+      if (!monde) { await charger('../js/monde/mondes/plusmoins.js'); monde = { ...Mondes.get('plusmoins'), id, notion: id }; }
+      scene = essayer('scene', () => {
+        const canvas = document.getElementById('scene');
+        const marques = {};
+        for (const p of monde.pnj || []) marques[p.id] = p.zone === 1 ? '!' : null;
+        const jeu = Moteur.creer(canvas, monde, { etat: { portesOuvertes: [1], coffresOuverts: [], marques }, surTouche() {}, surArrivee() {}, surDeplacement() {} });
+        jeu.demarrer();
+        const p = (monde.pnj || []).find(q => q.zone === 1);
+        if (p) {
+          jeu.majEntite(p.id, { marque: 'ok' });
+          const autre = (monde.pnj || []).find(q => q.zone === 1 && q !== p) || p;
+          jeu.allerVers(autre.x, autre.y);
+        }
+        jeu.simuler(0.7);
+        const dbg = jeu.debug();
+        return { ok: !dbg.erreur, monde: monde.id, erreur: dbg.erreur || null };
+      }) || { ok: false };
+    }
+    const ok = !erreurs.length && (partie === '2' || true) && (partie === '1' || (svgs.alvin === 4 && svgs.pnj === 6 && svgs.vignettes === 5 && scene.ok));
+    document.getElementById('resultat').textContent = JSON.stringify({ ok, palette: id, partie: partie || 'tout', svgs, scene, erreurs }, null, 1);
+  })();
+  </script>
+</body>
+</html>

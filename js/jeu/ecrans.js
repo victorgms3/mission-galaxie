@@ -149,13 +149,18 @@ const Ecrans = (() => {
     const liste = h('div', { class: 'espace-planetes' });
     planetes.forEach((m, i) => {
       const ouverte = D.debloquees.includes(m.id);
+      const prete = Jeu.planetePrete(m);
       const et = D.planetes[m.id];
       const aides = et ? Object.values(et.pnj).filter(n => n >= 4).length : 0;
       const ici = D.planeteActuelle === m.id;
       liste.append(h('button', {
-        class: 'espace-planete' + (ouverte ? '' : ' fermee') + (ici ? ' ici' : ''),
+        class: 'espace-planete' + (ouverte && prete ? '' : ' fermee') + (ici ? ' ici' : ''),
         onclick: () => {
           Sons.clic();
+          if (!prete) {
+            UI.toast(`Les habitants de la ${m.nom} préparent encore leurs problèmes : bientôt disponible !`);
+            return;
+          }
           if (!ouverte) {
             const avant = planetes[i - 1];
             UI.toast(`Aide le chef de la ${avant ? avant.nom : 'planète précédente'} pour ouvrir cette route.`);
@@ -166,7 +171,7 @@ const Ecrans = (() => {
       },
         h('span', { class: 'espace-vignette', html: typeof Art !== 'undefined' && Art.vignettePlanete ? Art.vignettePlanete(m.id) : '' }),
         h('span', { class: 'espace-nom' }, m.nom),
-        h('span', { class: 'espace-detail' }, ouverte ? `${aides} / 12 habitants aidés` : 'Route fermée'),
+        h('span', { class: 'espace-detail' }, !prete ? 'Bientôt disponible' : ouverte ? `${aides} / 12 habitants aidés` : 'Route fermée'),
         !ouverte && h('span', { class: 'espace-cadenas' }, ic('cadenas', 20)),
         ici && h('span', { class: 'espace-ici' }, 'Tu es ici')));
     });
