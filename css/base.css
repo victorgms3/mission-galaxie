@@ -265,6 +265,14 @@ textarea.champ { min-height: 110px; resize: vertical; }
 .alvin.coucou .alv-bras-d { animation: coucou 1.2s ease-in-out 2; }
 @keyframes coucou { 0%, 100% { transform: rotate(0); } 30%, 70% { transform: rotate(-135deg); } 50% { transform: rotate(-110deg); } }
 
+/* Bouton haut-parleur pendant la lecture (js/core/voix.js) : corail + icône « stop » ; le retoucher arrête la voix */
+.voix-en-cours {
+  --fond: var(--corail); --texte: #fff; --bord: var(--corail-fonce); --contour: transparent;
+  background-color: var(--corail) !important; color: #fff !important;
+}
+.voix-en-cours .icone { animation: voix-stop 1.1s ease-in-out infinite; }
+@keyframes voix-stop { 50% { transform: scale(.82); } }
+
 /* Mouvements réduits : on coupe les animations décoratives */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

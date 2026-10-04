@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Test — haut-parleurs interrupteurs</title>
+  <link rel="stylesheet" href="../css/base.css">
+</head>
+<body>
+  <h1>Haut-parleurs : toucher pour écouter, retoucher pour arrêter</h1>
+  <p id="enonce"><span class="phrase">Léa a 12 billes.</span> <span class="phrase">Combien de billes a-t-elle ?</span></p>
+  <div id="boutons"></div>
+  <pre id="resultat">en cours…</pre>
+  <script src="../js/core/ui.js"></script>
+  <script src="../js/core/storage.js"></script>
+  <script src="../js/core/icones.js"></script>
+  <script src="../js/core/voix.js"></script>
+  <script>
+  'use strict';
+  // Moteur de synthèse simulé : chaque morceau « dure » 1,5 s
+  const faux = {
+    speaking: false, pending: false, paused: false, _u: null, _t: null,
+    getVoices: () => [{ name: 'Voix test', lang: 'fr-FR', localService: true }],
+    speak(u) {
+      this.speaking = true; this._u = u;
+      setTimeout(() => u.onstart && u.onstart(), 10);
+      this._t = setTimeout(() => { this.speaking = false; this._u = null; if (u.onend) u.onend(); }, 1500);
+    },
+    cancel() { clearTimeout(this._t); const u = this._u; this._u = null; if (u && this.speaking) { this.speaking = false; if (u.onerror) u.onerror({ error: 'interrupted' }); } },
+    pause() {}, resume() {}, addEventListener() {},
+  };
+  class FauxEnonce { constructor(t) { this.text = t; } }
+  Voix._injecter(faux, { Enonce: FauxEnonce });
+
+  const ENONCE = ['Léa a 12 billes.', 'Combien de billes a-t-elle ?'];
+  const phrases = [...document.querySelectorAll('.phrase')];
+  const journal = { finsEnonce: 0 };
+  const lireEnonce = () => Voix.dire(ENONCE, {
+    onSegment: i => phrases.forEach((p, k) => p.classList.toggle('en-lecture', k === i)),
+    onFin: () => { journal.finsEnonce++; },
+  });
+  const { h } = UI;
+  const petit = h('button', { class: 'btn-rond petit', 'aria-label': 'Écouter le problème', onclick: lireEnonce, html: Icone.svg('haut-parleur', 22) });
+  const gros = h('button', { class: 'btn secondaire grand', onclick: lireEnonce }, Icone.creer('haut-parleur', 24), 'Écouter le problème');
+  const alvin = h('button', { class: 'btn-rond petit', 'aria-label': 'Réécouter Alvin', onclick: () => Voix.dire('Bravo, tu as trouvé la question !'), html: Icone.svg('haut-parleur', 22) });
+  const autre = h('button', { class: 'btn principal', onclick: () => Voix.dire(ENONCE) }, 'Bouton sans haut-parleur');
+  document.getElementById('boutons').append(petit, gros, alvin, autre);
+
+  const pause = ms => new Promise(r => setTimeout(r, ms));
+  const etat = b => ({
+    lecture: Voix.enLecture(),
+    actif: b.classList.contains('voix-en-cours'),
+    label: b.getAttribute('aria-label'),
+    texte: b.textContent.trim(),
+    stop: !!b.querySelector('.icone-haut-parleur rect'),
+    surligne: document.querySelectorAll('.en-lecture').length,
+  });
+  const verifs = [];
+  const verifier = (nom, ok, detail) => verifs.push({ nom, ok: !!ok, detail });
+
+  (async () => {
+    // 1. toucher → lecture, bouton corail avec icône stop
+    petit.click(); await pause(300);
+    let e = etat(petit);
+    verifier('1er toucher : la lecture démarre', e.lecture && e.actif && e.stop && e.label === 'Arrêter la lecture' && e.surligne === 1, e);
+    // 2. retoucher → arrêt, bouton restauré, surlignage effacé, fin signalée
+    petit.click(); await pause(300);
+    e = etat(petit);
+    verifier('2e toucher : la voix s’arrête', !e.lecture && !e.actif && !e.stop && e.label === 'Écouter le problème' && e.surligne === 0 && journal.finsEnonce === 1, { ...e, finsEnonce: journal.finsEnonce });
+    // 3. retoucher encore → relit
+    petit.click(); await pause(300);
+    verifier('3e toucher : relit', Voix.enLecture() && petit.classList.contains('voix-en-cours'), etat(petit));
+    // 4. un autre haut-parleur qui lit le même texte arrête aussi la lecture
+    gros.click(); await pause(300);
+    e = etat(gros);
+    verifier('autre haut-parleur, même texte : arrêt', !e.lecture && !petit.classList.contains('voix-en-cours') && !e.actif && e.texte === 'Écouter le problème', e);
+    // 5. gros bouton : texte remplacé pendant la lecture puis rétabli
+    gros.click(); await pause(300);
+    e = etat(gros);
+    verifier('gros bouton : « Arrêter la lecture » pendant la lecture', e.lecture && e.actif && e.texte === 'Arrêter la lecture', e);
+    // 6. haut-parleur d'un autre texte pendant la lecture → bascule (pas d'arrêt)
+    alvin.click(); await pause(300);
+    verifier('texte différent : bascule sur le nouveau texte', Voix.enLecture() && alvin.classList.contains('voix-en-cours') && !gros.classList.contains('voix-en-cours') && gros.textContent.trim() === 'Écouter le problème' && !gros.hasAttribute('aria-label'), { alvin: etat(alvin), gros: etat(gros) });
+    // 7. fin naturelle → tout revient à la normale
+    await pause(4000);
+    e = etat(alvin);
+    verifier('fin naturelle : bouton restauré', !e.lecture && !e.actif && !e.stop && e.label === 'Réécouter Alvin', e);
+    // 8. lecture automatique (sans bouton), puis toucher le haut-parleur du même texte → arrêt
+    lireEnonce(); await pause(300);
+    verifier('lecture auto : aucun bouton marqué', Voix.enLecture() && !petit.classList.contains('voix-en-cours'), etat(petit));
+    petit.click(); await pause(300);
+    verifier('lecture auto puis haut-parleur : arrêt', !Voix.enLecture() && document.querySelectorAll('.en-lecture').length === 0, etat(petit));
+    // 9. un bouton sans icône haut-parleur n'est pas un interrupteur
+    lireEnonce(); await pause(300);
+    autre.click(); await pause(300);
+    verifier('bouton ordinaire : relance au lieu d’arrêter', Voix.enLecture(), etat(autre));
+    Voix.stop();
+    const ok = verifs.every(v => v.ok);
+    document.getElementById('resultat').textContent = JSON.stringify({ ok, verifs }, null, 1);
+  })().catch(err => { document.getElementById('resultat').textContent = JSON.stringify({ ok: false, erreur: String(err && err.stack || err) }); });
+  </script>
+</body>
+</html>

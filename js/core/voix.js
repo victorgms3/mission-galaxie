@@ -4,8 +4,10 @@
    - adapte le texte à l'oral (heures, durées, unités, euros, symboles, grands nombres) ;
    - découpe en phrases courtes (les voix « en ligne » coupent les textes longs) ;
    - contourne les blocages connus de Chrome / Edge / Android (fin perdue, voix figée, lecture refusée avant le premier toucher).
+   - fait de chaque bouton haut-parleur un interrupteur : le retoucher pendant qu'il lit arrête la voix.
    API : Voix.dire(textes, { onSegment, onFin }), Voix.stop(), Voix.voixFr(), Voix.choisir(), Voix.disponible,
-         Voix.qualite(voix), Voix.listeTriee(), Voix.conseil(), Voix.pourOral(texte), Voix.decouper(texte), Voix.actuelle(). */
+         Voix.qualite(voix), Voix.listeTriee(), Voix.conseil(), Voix.pourOral(texte), Voix.decouper(texte), Voix.actuelle(),
+         Voix.enLecture(). */
 const Voix = (() => {
   const ORIGINE = 'speechSynthesis' in window ? window.speechSynthesis : null;
   let synth = ORIGINE;
@@ -284,7 +286,66 @@ const Voix = (() => {
     jeton++;
     nettoyer();
     enCours = null;
+    lecture = null;
+    marquerBouton(null);
     if (synth) { try { synth.cancel(); } catch (e) { /* rien */ } }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Boutons haut-parleur = interrupteur : les retoucher pendant qu'ils lisent arrête la voix.
+  // Concerne tout bouton qui contient l'icône « haut-parleur » (Icone.svg) ou qui porte l'attribut data-voix.
+  // ---------------------------------------------------------------------------
+  let lecture = null;       // lecture en cours : { liste, onSegment, onFin }
+  let boutonClique = null;  // bouton haut-parleur touché pendant le clic en cours
+  let boutonActif = null;   // bouton affiché « en train de lire »
+  const sauvegardes = new WeakMap();
+  const ICONE_STOP = '<rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="currentColor" stroke="none"/>';
+
+  const estBoutonVoix = b => !!b && (b.hasAttribute('data-voix') || !!b.querySelector('.icone-haut-parleur'));
+  const memeTexte = (a, b) => a.length === b.length && a.every((t, i) => String(t).trim() === String(b[i]).trim());
+
+  document.addEventListener('click', e => {
+    const b = e.target && e.target.closest ? e.target.closest('button, [role="button"]') : null;
+    if (!estBoutonVoix(b)) return;
+    boutonClique = b;
+    setTimeout(() => { if (boutonClique === b) boutonClique = null; }, 0);
+  }, true);
+
+  // Pendant la lecture : fond corail et icône « stop », pour montrer qu'un toucher arrête la voix
+  function marquerBouton(b) {
+    if (boutonActif && boutonActif !== b) {
+      const s = sauvegardes.get(boutonActif);
+      boutonActif.classList.remove('voix-en-cours');
+      if (s) {
+        if (s.icone) s.icone.innerHTML = s.trace;
+        if (s.texte) s.texte.nodeValue = s.mots;
+        if (s.label != null) boutonActif.setAttribute('aria-label', s.label);
+        else boutonActif.removeAttribute('aria-label');
+        sauvegardes.delete(boutonActif);
+      }
+    }
+    if (!b || b === boutonActif) { boutonActif = b || null; return; }
+    boutonActif = b;
+    const icone = b.querySelector('.icone-haut-parleur');
+    const texte = [...b.childNodes].find(n => n.nodeType === 3 && n.nodeValue.trim());
+    sauvegardes.set(b, {
+      icone, trace: icone ? icone.innerHTML : '',
+      texte, mots: texte ? texte.nodeValue : '',
+      label: b.getAttribute('aria-label'),
+    });
+    if (icone) icone.innerHTML = ICONE_STOP;
+    if (texte) texte.nodeValue = 'Arrêter la lecture';
+    b.setAttribute('aria-label', 'Arrêter la lecture');
+    b.classList.add('voix-en-cours');
+  }
+
+  // Arrêt demandé par l'enfant : la lecture est considérée comme finie (fin du surlignage, suite du jeu)
+  function arreter() {
+    const l = lecture;
+    stop();
+    if (!l) return;
+    try { if (l.onSegment) l.onSegment(-1); } catch (e) { /* rien */ }
+    try { if (l.onFin) l.onFin(); } catch (e) { /* rien */ }
   }
 
   // Chrome refuse de parler avant le premier toucher de l'enfant : on relira au premier toucher
@@ -305,10 +366,16 @@ const Voix = (() => {
   // textes : une phrase ou une liste de phrases (lues l'une après l'autre).
   // onSegment(i) au début de la phrase i, puis onSegment(-1) et onFin() à la fin (pas d'appel si on l'interrompt).
   function dire(textes, { onSegment, onFin } = {}) {
-    stop();
     const liste = (Array.isArray(textes) ? textes : [textes]).filter(t => t != null && String(t).trim());
+    const bouton = boutonClique;
+    boutonClique = null;
+    // Interrupteur : un haut-parleur touché pendant la lecture de ce même texte arrête la voix
+    if (bouton && lecture && memeTexte(liste, lecture.liste)) { arreter(); return; }
+    stop();
     const mien = jeton;
     if (!synth || !Enonce || !liste.length) { if (onFin) setTimeout(onFin, 0); return; }
+    lecture = { liste, onSegment, onFin };
+    marquerBouton(bouton);
     choisir(); // voix arrivées tard, pannes terminées, réglage modifié
 
     const morceaux = [];
@@ -319,6 +386,8 @@ const Voix = (() => {
       if (mien !== jeton) return;
       nettoyer();
       enCours = null;
+      lecture = null;
+      marquerBouton(null);
       if (onSegment) onSegment(-1);
       if (onFin) onFin();
     };
@@ -454,6 +523,7 @@ const Voix = (() => {
   return {
     dire, stop, voixFr, choisir, qualite, listeTriee, conseil, pourOral, decouper, score, _injecter,
     actuelle: () => voixChoisie,
+    enLecture: () => !!lecture,
     enPanne: () => [...enPanne.keys()].filter(nom => (enPanne.get(nom) || 0) > Date.now()),
     get disponible() { return !!synth; },
   };

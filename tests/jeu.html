@@ -1,0 +1,965 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#23263a">
+  <title>Test — partie complète de Mission Galaxie</title>
+  <link rel="icon" href="../icons/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&family=Fredoka:wght@500;600;700&display=swap">
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/resolution.css">
+  <link rel="stylesheet" href="../css/jeu.css">
+  <!--
+    Copie de index.html (mêmes scripts, mêmes styles) qui repart d'une sauvegarde vide.
+    Sans paramètre : on joue soi-même. Avec &auto=1 : un robot joue une vraie partie en touchant l'interface réelle
+    (Ecrans, Jeu, Moteur, Resolution) et écrit un rapport JSON dans la zone « resultat » (balise pre).
+      &planete=plusmoins|paquets|marche   ne jouer que cette planète (sa route est ouverte d'office)
+      &rapide=1                           habitants déjà aidés 3 fois sur 4 et zones ouvertes : 1 problème par habitant
+      &ecran=config|histoire|planete|titre|dialogue|resolution|coffre|piece|espace|carnet|coach
+                                          s'arrête sur cet écran (captures) ; avec ecran=resolution, &etape=lire|question|infos|schema|operation|calcul|reponse|fin
+      &voix=1                             laisse Alvin parler (sinon voix coupée : pas de synthèse vocale fiable sans fenêtre)
+    Exemples (temps virtuel : prévoir -Attente large) :
+      outils/tester.ps1 -Page "tests/jeu.html?auto=1" -Attente 3000000
+      outils/tester.ps1 -Page "tests/jeu.html?auto=1&planete=paquets&rapide=1" -Attente 600000
+      outils/tester.ps1 -Page "tests/jeu.html?auto=1&rapide=1&ecran=piece" -Mode capture -Sortie piece.png -Attente 300000
+  -->
+  <script>
+    'use strict';
+    // Avant tout le reste : capture des erreurs et sauvegarde vide
+    window.__erreurs = [];
+    window.onerror = (message, source, ligne) => { window.__erreurs.push(`${String(source || '').split('/').pop()}:${ligne} ${message}`); };
+    window.addEventListener('unhandledrejection', e => window.__erreurs.push('promesse rejetée : ' + String(e.reason && e.reason.stack || e.reason).split('\n')[0]));
+    // le moteur du monde attrape ses propres erreurs et les écrit avec console.error : on les compte aussi
+    (() => {
+      const origine = console.error.bind(console);
+      console.error = (...a) => { window.__erreurs.push('console.error : ' + a.map(x => (x && x.stack ? x.stack.split('\n').slice(0, 2).join(' ') : String(x))).join(' ')); origine(...a); };
+    })();
+    try { localStorage.removeItem('missionGalaxie.v2'); localStorage.removeItem('missionGalaxie.v1'); } catch (e) { window.__erreurs.push('localStorage indisponible'); }
+  </script>
+</head>
+<body>
+  <main id="app"></main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <pre id="resultat" hidden>en cours…</pre>
+
+  <!-- Outils -->
+  <script src="../js/core/ui.js"></script>
+  <script src="../js/core/storage.js"></script>
+  <script src="../js/core/icones.js"></script>
+  <script src="../js/core/voix.js"></script>
+  <script src="../js/core/sons.js"></script>
+  <!-- Dessins -->
+  <script src="../js/art/art.js"></script>
+  <script src="../js/art/alvin.js"></script>
+  <!-- Problèmes -->
+  <script src="../js/problemes/moteur.js"></script>
+  <script src="../js/problemes/banques/plusmoins-1.js"></script>
+  <script src="../js/problemes/banques/plusmoins-2.js"></script>
+  <script src="../js/problemes/banques/paquets-1.js"></script>
+  <script src="../js/problemes/banques/paquets-2.js"></script>
+  <script src="../js/problemes/banques/marche-1.js"></script>
+  <script src="../js/problemes/banques/marche-2.js"></script>
+  <!-- Planètes et moteur du monde -->
+  <script src="../js/monde/mondes.js"></script>
+  <script src="../js/monde/mondes/plusmoins.js"></script>
+  <script src="../js/monde/mondes/paquets.js"></script>
+  <script src="../js/monde/mondes/marche.js"></script>
+  <script src="../js/monde/mondes/tictac.js"></script>
+  <script src="../js/monde/moteur.js"></script>
+  <!-- Résolution guidée -->
+  <script src="../js/resolution/widgets.js"></script>
+  <script src="../js/resolution/resolution.js"></script>
+  <!-- Jeu -->
+  <script src="../js/jeu/ecrans.js"></script>
+  <script src="../js/jeu/jeu.js"></script>
+  <script src="../js/jeu/app.js"></script>
+
+  <script>
+  'use strict';
+  (async () => {
+    const prm = new URLSearchParams(location.search);
+    if (prm.get('auto') !== '1') return;   // mode manuel : on joue soi-même, avec une sauvegarde vide
+
+    const ECRAN = prm.get('ecran');
+    const ETAPE = prm.get('etape');
+    const SEULE = prm.get('planete');
+    const RAPIDE = prm.get('rapide') === '1';
+    const VOIX = prm.get('voix') === '1';
+    const PRENOM = 'Léa', CODE = '2468';
+    const CLE = 'missionGalaxie.v2';
+    const PLANETES = ['plusmoins', 'paquets', 'marche'];
+
+    // Captures : sans fenêtre, le temps virtuel ne fait pas avancer les animations CSS (elles resteraient à mi-chemin) :
+    // on les coupe pour voir l'état final de chaque écran.
+    if (ECRAN) document.head.append(UI.h('style', null, '*, *::before, *::after { animation: none !important; transition: none !important; }'));
+
+    const sortie = document.getElementById('resultat');
+    const debut = performance.now();
+    const rapport = {
+      ok: false, fini: false, parametres: location.search.slice(1), etape: 'démarrage',
+      echecs: [], erreursJS: window.__erreurs, verifications: 0, liste: [], planetes: {},
+    };
+    const ecrire = () => {
+      rapport.tempsVirtuel = Math.round(performance.now() - debut) + ' ms';
+      sortie.textContent = JSON.stringify(rapport, null, 1);
+    };
+    // majeur = false : vérification répétée (chaque problème…) comptée mais listée seulement si elle échoue
+    function verif(nom, ok, detail, majeur = true) {
+      rapport.verifications++;
+      if (!ok) rapport.echecs.push(nom + (detail !== undefined ? ' — ' + JSON.stringify(detail).slice(0, 600) : ''));
+      if (majeur || !ok) rapport.liste.push((ok ? 'ok  ' : 'KO  ') + nom);
+      return !!ok;
+    }
+
+    // ------------------------------------------------------------------ outils
+    class Arret extends Error {}
+    const arret = nom => { if (ECRAN === nom) throw new Arret(nom); };
+    const pause = ms => new Promise(r => setTimeout(r, ms));
+    const $ = (s, r = document) => r.querySelector(s);
+    const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+    const norm = s => String(s == null ? '' : s).replace(/[  ]/g, ' ').replace(/\s+/g, ' ').trim();
+    const texte = el => (el ? norm(el.textContent) : '');
+    const J = () => Jeu.debug();
+    const entite = id => J().moteur.entites.find(e => e.id === id);
+    const lireSauvegarde = () => { try { return JSON.parse(localStorage.getItem(CLE)); } catch (e) { return null; } };
+    async function attendre(cond, quoi, max = 6000) {
+      for (let t = 0; t <= max; t += 20) {
+        const v = cond();
+        if (v) return v;
+        await pause(20);
+      }
+      throw new Error('délai dépassé : ' + quoi);
+    }
+    // bouton par son texte (ou son aria-label), dans les éléments visibles
+    function bouton(libelle, racine = document) {
+      const L = norm(libelle);
+      return $$('button', racine).find(b => (texte(b) === L || b.getAttribute('aria-label') === libelle) && b.offsetParent !== null) || null;
+    }
+    function cliquer(el, quoi) {
+      if (!el) throw new Error('introuvable : ' + quoi);
+      el.click();
+    }
+    const dialogueOuvert = () => $('.dialogue-fond .dialogue');
+    function toucheDe(racine, ch) { return $$('.clavier .touche', racine).find(b => b.textContent === ch); }
+
+    // ------------------------------------------------------------------ fichiers : index.html, sw.js, cette page
+    function lireFichier(chemin) {
+      try {
+        const x = new XMLHttpRequest();
+        x.open('GET', chemin, false);
+        x.send();
+        return x.status === 0 || x.status === 200 ? x.responseText : null;
+      } catch (e) { return null; }
+    }
+    function verifierFichiers() {
+      const index = lireFichier('../index.html'), sw = lireFichier('../sw.js');
+      if (!index || !sw) { verif('fichiers : lecture de index.html et sw.js', false, 'XHR file:// refusée'); return; }
+      const sansCommentaires = s => s.replace(/<!--[\s\S]*?-->/g, '');
+      const local = h => !/^https?:/.test(h);
+      const scriptsIndex = [...sansCommentaires(index).matchAll(/<script src="([^"]+)"/g)].map(m => m[1]);
+      const stylesIndex = [...sansCommentaires(index).matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map(m => m[1]).filter(local);
+      const scriptsIci = $$('script[src]').map(s => s.getAttribute('src').replace(/^\.\.\//, ''));
+      const stylesIci = $$('link[rel="stylesheet"]').map(l => l.getAttribute('href')).filter(local).map(h => h.replace(/^\.\.\//, ''));
+      verif('tests/jeu.html charge exactement les scripts de index.html (même ordre)', JSON.stringify(scriptsIci) === JSON.stringify(scriptsIndex), { scriptsIci, scriptsIndex });
+      verif('tests/jeu.html charge exactement les styles de index.html', JSON.stringify(stylesIci) === JSON.stringify(stylesIndex), { stylesIci, stylesIndex });
+      const absentsIndex = scriptsIndex.concat(stylesIndex).filter(f => lireFichier('../' + f) === null);
+      verif('index.html : tous les fichiers chargés existent', !absentsIndex.length, absentsIndex);
+      const bloc = (/const FICHIERS = \[([\s\S]*?)\];/.exec(sw) || ['', ''])[1].replace(/\/\/.*$/gm, '');
+      const fichiersSw = [...bloc.matchAll(/'([^']+)'/g)].map(m => m[1]);
+      const attendus = ['./', 'index.html', 'manifest.webmanifest', ...stylesIndex, ...scriptsIndex, 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
+      const manquants = attendus.filter(f => !fichiersSw.includes(f)), enTrop = fichiersSw.filter(f => !attendus.includes(f));
+      verif('sw.js : liste = fichiers chargés par index.html + manifeste + icônes', !manquants.length && !enTrop.length && fichiersSw.length === new Set(fichiersSw).size, { manquants, enTrop });
+      const absentsSw = fichiersSw.filter(f => f !== './' && lireFichier('../' + f) === null);
+      verif('sw.js : chaque fichier de la liste existe', !absentsSw.length, absentsSw);
+      rapport.versionCache = (/const VERSION = '([^']+)'/.exec(sw) || [])[1];
+    }
+
+    // ------------------------------------------------------------------ marcher sur la carte (moteur réel)
+    async function fermerPauseSiBesoin() {
+      const m = $$('.modal-fond .modal').find(x => texte($('h2', x)) === 'Une petite pause ?');
+      if (m) { rapport.rappelsPause = (rapport.rappelsPause || 0) + 1; cliquer(bouton('Encore 10 minutes', m), 'Encore 10 minutes'); await pause(20); }
+    }
+    // Alvin va vers une case (ou l'entité qui s'y trouve) ; le temps du moteur est simulé jusqu'à l'arrivée
+    async function marcherVers(x, y, quoi, idAttendu) {
+      await fermerPauseSiBesoin();
+      const { moteur } = J();
+      const r = moteur.allerVers(x, y);
+      if (!r) throw new Error(`Alvin ne peut pas partir vers ${quoi} (moteur bloqué ?)`);
+      if (idAttendu && (!r.entite || r.entite.id !== idAttendu)) {
+        throw new Error(`${quoi} inaccessible depuis (${Math.round(moteur.joueur.x)}, ${Math.round(moteur.joueur.y)})`);
+      }
+      for (let t = 0; moteur.debug().enMarche && t < 300; t += 0.25) moteur.simuler(0.25);
+      if (moteur.debug().enMarche) throw new Error('Alvin marche encore après 300 s : ' + quoi);
+      await pause(20);
+      return r;
+    }
+    // Vrai toucher : événements pointeur sur le canvas, à l'endroit où l'habitant est dessiné
+    async function toucherReel(p) {
+      const { moteur } = J();
+      moteur.simuler(0.1);
+      const canvas = $('.monde-canvas');
+      const [sx, sy] = moteur.versEcran(p.x, p.y);
+      const r = canvas.getBoundingClientRect();
+      const cx = r.left + sx, cy = r.top + sy;
+      const dessus = document.elementFromPoint(cx, cy);
+      if (!verif(`toucher réel : le toucher sur ${p.nom} arrive bien à la carte (pas au HUD)`, dessus === canvas, dessus && (dessus.className.baseVal || dessus.className))) {
+        return marcherVers(p.x, p.y, 'habitant ' + p.nom, p.id);
+      }
+      const ev = type => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: cx, clientY: cy, pointerId: 3, isPrimary: true, pointerType: 'touch', button: 0 }));
+      ev('pointerdown');
+      ev('pointerup');
+      verif('toucher réel : Alvin part vers l\'habitant', moteur.debug().enMarche || !!dialogueOuvert(), moteur.debug());
+      for (let t = 0; moteur.debug().enMarche && t < 120; t += 0.25) moteur.simuler(0.25);
+      await pause(20);
+    }
+
+    // ------------------------------------------------------------------ résolution guidée (panneau réel)
+    // Solveur repris de tests/resolution.html : il touche les vrais boutons, cartes et cases du panneau.
+    const $r = s => document.querySelector('#resolution ' + s);
+    const $$r = s => [...document.querySelectorAll('#resolution ' + s)];
+    const taper = (el, quoi) => cliquer(el, quoi);
+    function pointeur(el, type, x, y, id) {
+      el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: id, isPrimary: true, pointerType: 'touch' }));
+    }
+    function toucherEl(el, quoi) {
+      if (!el) throw new Error('introuvable : ' + quoi);
+      const r = el.getBoundingClientRect();
+      pointeur(el, 'pointerdown', r.left + r.width / 2, r.top + r.height / 2, 7);
+      pointeur(el, 'pointerup', r.left + r.width / 2, r.top + r.height / 2, 7);
+    }
+    const toucheR = ch => taper($$r('.clavier .touche').find(b => b.textContent === ch), 'touche ' + ch);
+    const memeTexte = (b, t) => norm(b.textContent) === norm(t);
+    const validerR = () => taper($r('.clavier .touche.valider'), 'valider');
+    const effacerR = () => taper($r('.clavier .touche.effacer'), 'effacer');
+    async function placerCarte(k, slot) {
+      toucherEl($r(`.res-plateau .res-carte[data-k="${k}"]`), 'carte ' + k);
+      taper($r(`.case[data-slot="${slot}"]`), 'case ' + slot);
+      await pause(5);
+    }
+    async function ecrireNombre(v) {
+      if ($r('.pose')) {
+        const cells = $$r('.pose-resultat');
+        const n = cells.length;
+        const s = String(v).padStart(n, ' ');
+        if (String(v).length > n) throw new Error('résultat trop long pour la pose');
+        for (let i = n - 1; i >= 0; i--) {
+          taper(cells[i], 'case du résultat');
+          if (s[i] === ' ') { if (cells[i].textContent) effacerR(); } else toucheR(s[i]);
+        }
+      } else if ($r('.champ-h')) {
+        const ch = $r('.champ-h'), cm = $r('.champ-min');
+        taper(ch, 'heures');
+        while (ch.textContent) effacerR();
+        for (const c of String(Math.floor(v / 60))) toucheR(c);
+        taper(cm, 'minutes');
+        while (cm.textContent) effacerR();
+        for (const c of String(v % 60)) toucheR(c);
+      } else {
+        const b = $r('.res-boite-reponse');
+        while (b.textContent) effacerR();
+        for (const c of String(v)) toucheR(c);
+      }
+    }
+    async function agir(d, mode, faites) {
+      const p = d.probleme;
+      const cle = d.etape + d.e;
+      const fauter = mode === 'erreurs' && !faites.has(cle);
+      if (fauter) faites.add(cle);
+      switch (d.etape) {
+        case 'lire':
+          taper($r('[data-action="compris"]'), 'compris');
+          return;
+        case 'question':
+          if (fauter) { taper($$r('.phrase:not(.est-question)')[0], 'phrase'); await pause(5); }
+          taper($r('.phrase.est-question'), 'question');
+          return;
+        case 'infos':
+          if (fauter && p.distracteur) { taper($r(`.donnee[data-k="${p.distracteur}"]`), 'distracteur'); await pause(5); }
+          for (const k of p.utiles) {
+            const el = $$r(`.donnee[data-k="${k}"]`).find(x => x.classList.contains('cliquable'));
+            if (el) { taper(el, 'donnée ' + k); await pause(5); }
+          }
+          return;
+        case 'plan': {
+          const q = p.etapes[0].question;
+          if (fauter) { taper($$r('.choix-plan').find(b => !memeTexte(b, q)), 'mauvais plan'); await pause(5); }
+          taper($$r('.choix-plan').find(b => memeTexte(b, q)), 'bon plan');
+          return;
+        }
+        case 'schema': {
+          if ($r('[data-action="faire-schema"]')) taper($r('[data-action="faire-schema"]'), 'faire le schéma');
+          await attendre(() => $r('.res-schema .case'), 'schéma');
+          const slots = Object.entries(p.etapes[0].schema.slots);
+          if (fauter) {
+            await placerCarte(slots[0][1], slots[1][0]);
+            await placerCarte(slots[1][1], slots[0][0]);
+            await placerCarte(slots[2][1], slots[2][0]);
+            await attendre(() => !Resolution.debug().verrou, 'reprise du schéma');
+          }
+          for (const [slot, k] of slots) {
+            const c = $r(`.case[data-slot="${slot}"]`);
+            if (c.querySelector(`.res-carte[data-k="${k}"]`)) continue;
+            await placerCarte(k, slot);
+          }
+          return;
+        }
+        case 'operation': {
+          const op = p.etapes[d.e].op;
+          if (fauter) {
+            taper($$r('.btn-op').find(b => b.dataset.signe !== op.signe), 'mauvais signe');
+            await pause(5);
+            if (Resolution.debug().verrou) return;   // schéma imposé (grade 3)
+          }
+          taper($r(`.btn-op[data-signe="${op.signe}"]`), 'bon signe');
+          return;
+        }
+        case 'calcul': {
+          const op = p.etapes[d.e].op;
+          if (fauter) { await ecrireNombre(op.r > 1 ? op.r - 1 : op.r + 1); validerR(); await pause(5); }
+          await ecrireNombre(op.r);
+          validerR();
+          return;
+        }
+        case 'reponse':
+          if (fauter) { taper($$r('.phrase-reponse').find(b => !memeTexte(b, p.reponse.juste)), 'mauvaise réponse'); await pause(5); }
+          taper($$r('.phrase-reponse').find(b => memeTexte(b, p.reponse.juste)), 'bonne réponse');
+          return;
+        default:
+          throw new Error('étape inconnue : ' + d.etape);
+      }
+    }
+    let premierPanneau = true;
+    async function resoudrePanneau(mode, p) {
+      const D = () => Resolution.debug();
+      await attendre(() => Resolution.actif() && $('#resolution'), 'panneau de résolution');
+      const pb = D().probleme;
+      const { monde } = J();
+      verif(`panneau : ${p.nom} affiché comme demandeur`, texte($r('.res-pnj-textes b')) === p.nom, texte($r('.res-pnj-textes b')), false);
+      verif('panneau : problème de la notion de la planète, au grade de l\'enfant', pb.notion === monde.notion && D().niveau === Store.niveau(monde.notion), { notion: pb.notion, niveau: D().niveau }, false);
+      if (premierPanneau) {
+        premierPanneau = false;
+        verif('panneau de résolution au-dessus du jeu (HUD caché dessous)', getComputedStyle($('#resolution')).position === 'fixed' && document.elementFromPoint(innerWidth - 30, 30) !== $('.hud-bouton'));
+      }
+      const faites = new Set();
+      let dernier = -1;
+      const etapes = [];
+      for (let tour = 0; tour < 60; tour++) {
+        await attendre(() => !Resolution.actif() || D().etape === 'fin' || (!D().verrou && D().compteur !== dernier), 'étape suivante (' + D().etape + ')');
+        if (!Resolution.actif()) throw new Error('panneau fermé sans « Continuer »');
+        const d = D();
+        if (ECRAN === 'resolution' && (!ETAPE || ETAPE === d.etape)) throw new Arret('resolution');
+        if (d.etape === 'fin') {
+          const resultat = d.resultat;
+          etapes.push('fin');
+          taper($r('[data-action="continuer"]'), 'continuer');
+          return { probleme: pb, resultat, etapes };
+        }
+        etapes.push(d.etape);
+        dernier = d.compteur;
+        await agir(d, mode, faites);
+      }
+      throw new Error('problème interminable : ' + etapes.join(' > '));
+    }
+
+    // ------------------------------------------------------------------ écrans hors carte
+    async function premierLancement() {
+      rapport.etape = 'premier lancement';
+      await attendre(() => $('.ecran-config'), 'écran de premier lancement');
+      verif('sauvegarde vide → écran de premier lancement (pour un adulte)', Store.data.profil === null && !lireSauvegarde());
+      const [prenom, code] = $$('.ecran-config input.champ');
+      const go = bouton("Commencer l'aventure");
+      cliquer(go, "Commencer l'aventure");
+      verif('premier lancement : le prénom est obligatoire', /prénom/i.test(texte($('.ecran-config .message-erreur'))) && !Store.data.profil);
+      prenom.value = PRENOM;
+      code.value = '12a4';
+      cliquer(go, "Commencer l'aventure");
+      verif('premier lancement : code coach de 4 chiffres exigé', /4 chiffres/.test(texte($('.ecran-config .message-erreur'))) && !Store.data.profil);
+      code.value = CODE;
+      arret('config');
+      cliquer(go, "Commencer l'aventure");
+      const pr = Store.data.profil;
+      verif('premier lancement : profil enregistré (prénom, fille, code)', pr && pr.prenom === PRENOM && pr.genre === 'f' && pr.code === CODE, pr);
+      const s = lireSauvegarde();
+      verif('premier lancement : profil écrit dans la sauvegarde', !!(s && s.profil && s.profil.prenom === PRENOM));
+      if (!VOIX) { Store.data.reglages.alvinParle = false; Store.data.reglages.lectureAuto = false; Store.sauver(); }
+      Resolution.regler({ tempo: 0 });   // délais du panneau ramenés à zéro (temps virtuel)
+    }
+
+    function preparerRapide(id) {
+      const m = Mondes.get(id);
+      const et = Store.planete(id);
+      for (const p of m.pnj) et.pnj[p.id] = 3;
+      et.resolus = 3 * m.pnj.length;
+      et.zones = m.zones.filter(z => z.requis <= et.resolus).map(z => z.id);
+      Store.sauver();
+    }
+
+    async function histoire() {
+      rapport.etape = 'histoire';
+      await attendre(() => $('.ecran-histoire'), 'écran histoire');
+      const pages = [];
+      for (let i = 0; i < 6; i++) {
+        pages.push(texte($('.histoire-texte')));
+        const actif = $$('.histoire-points span').findIndex(s => s.classList.contains('actif'));
+        verif(`histoire : page ${i + 1} (point actif)`, actif === i, actif, false);
+        if (i === 0) {
+          verif('histoire : Alvin salue l\'enfant par son prénom', pages[0].includes(PRENOM), pages[0]);
+          arret('histoire');
+        }
+        const b = $('.ecran-histoire .btn.principal');
+        if (texte(b) === "C'est parti !") {
+          if (RAPIDE && (!SEULE || SEULE === 'plusmoins')) preparerRapide('plusmoins');
+          cliquer(b, "C'est parti !");
+          break;
+        }
+        cliquer(b, 'Suivant');
+        await pause(10);
+      }
+      verif('histoire : 4 pages puis « C\'est parti ! »', pages.length === 4, pages.length);
+      verif('histoire : marquée comme vue (sauvegarde)', Store.data.introVue === true && lireSauvegarde().introVue === true);
+    }
+
+    async function visiteTitre() {
+      rapport.etape = 'écran titre';
+      cliquer(bouton('Menu'), 'Menu (HUD)');
+      await attendre(() => $('.ecran-titre'), 'écran titre');
+      verif('titre : grade et prénom', texte($('.titre-sous')) === `${Store.grade(Store.niveau('plusmoins'))} ${PRENOM}`, texte($('.titre-sous')));
+      verif('titre : nombre d\'étoiles', texte($('.titre-etoiles')) === `${UI.fmt(Store.data.etoiles)} étoiles`, texte($('.titre-etoiles')));
+      arret('titre');
+      cliquer(bouton('Jouer'), 'Jouer');
+      await attendre(() => J().moteur && $('.ecran-jeu'), 'retour sur la planète');
+      verif('titre → « Jouer » : retour sur la planète en cours', J().monde.id === Store.data.planeteActuelle);
+      verif('retour sur la planète : Alvin donne un conseil', /^Va voir les habitants/.test(texte($('.hud-bulle-texte'))), texte($('.hud-bulle-texte')));
+    }
+
+    function carteEspace(nom) { return $$('.espace-planete').find(c => texte($('.espace-nom', c)) === nom) || null; }
+    function verifierEspace() {
+      const D = Store.data;
+      const pbs = [];
+      for (const m of Mondes.liste()) {
+        const c = carteEspace(m.nom);
+        if (!c) { pbs.push('carte absente : ' + m.id); continue; }
+        const prete = Jeu.planetePrete(m), ouverte = D.debloquees.includes(m.id);
+        const et = D.planetes[m.id];
+        const aides = et ? Object.values(et.pnj).filter(n => n >= 4).length : 0;
+        const att = !prete ? 'Bientôt disponible' : ouverte ? `${aides} / ${m.pnj.length} habitants aidés` : 'Route fermée';
+        if (texte($('.espace-detail', c)) !== att) pbs.push(`${m.id} : « ${texte($('.espace-detail', c))} » au lieu de « ${att} »`);
+        if (c.classList.contains('fermee') === (ouverte && prete)) pbs.push(m.id + ' : grisée à tort');
+        if (!!$('.espace-ici', c) !== (D.planeteActuelle === m.id)) pbs.push(m.id + ' : « Tu es ici »');
+      }
+      verif(`voyage : cartes des planètes (${Mondes.liste().length})`, !pbs.length && $$('.espace-planete').length === Mondes.liste().length, pbs);
+    }
+    async function choisirPlanete(id) {
+      await attendre(() => $('.ecran-espace'), 'écran de voyage');
+      verifierEspace();
+      arret('espace');
+      const m = Mondes.get(id);
+      cliquer(carteEspace(m.nom), 'planète ' + id);
+      await attendre(() => $('.ecran-voyage'), 'animation de voyage');
+      verif(`voyage vers ${id} : « Direction : ${m.nom} »`, texte($('.voyage-texte')) === 'Direction : ' + m.nom);
+      await attendre(() => J().moteur && J().monde.id === id && $('.ecran-jeu'), 'arrivée sur ' + id, 8000);
+    }
+
+    async function visiterCarnet() {
+      rapport.etape = 'carnet';
+      const id = J().monde.id;
+      cliquer(bouton('Mon carnet'), 'Mon carnet (HUD)');
+      await attendre(() => $('.ecran-carnet'), 'écran carnet');
+      const D = Store.data;
+      const visibles = Mondes.liste().filter(m => D.debloquees.includes(m.id) && Jeu.planetePrete(m));
+      const connus = $$('.carnet-ami:not(.inconnu)').length;
+      const attendus = visibles.reduce((n, m) => n + m.pnj.filter(p => D.carnet.includes(m.id + ':' + p.id)).length, 0);
+      verif('carnet : amis aidés (portraits) et habitants à découvrir', connus === attendus && connus > 0 && $$('.carnet-ami').length === visibles.reduce((n, m) => n + m.pnj.length, 0), { connus, attendus });
+      arret('carnet');
+      cliquer(bouton('Souvenirs'), 'onglet Souvenirs');
+      const trouves = $$('.carnet-souvenir:not(.inconnu)').length;
+      verif('carnet : souvenirs trouvés dans les coffres', trouves === D.souvenirs.length && trouves > 0, { trouves, souvenirs: D.souvenirs });
+      cliquer(bouton('Mes grades'), 'onglet Mes grades');
+      verif('carnet : grades des notions jouables seulement (3)', $$('.carnet-grade').length === 3, $$('.carnet-grade').length);
+      cliquer(bouton('Retour'), 'Retour');
+      await attendre(() => J().moteur && $('.ecran-jeu') && J().monde.id === id, 'retour sur la planète après le carnet');
+      verif('carnet → Retour : de nouveau sur la planète', true);
+    }
+
+    async function espaceCoach() {
+      rapport.etape = 'espace coach';
+      if (!$('.ecran-titre')) cliquer(bouton('Menu'), 'Menu (HUD)');
+      await attendre(() => $('.ecran-titre'), 'écran titre');
+      cliquer(bouton('Espace coach'), 'Espace coach');
+      const m = await attendre(() => $('.modal-code'), 'fenêtre du code coach');
+      for (const ch of '1357') cliquer(toucheDe(m, ch), 'touche ' + ch);
+      await pause(400);
+      verif('coach : un mauvais code est refusé', !!$('.modal-code') && !$('.ecran-coach') && $$('.code-points .plein', m).length === 0);
+      for (const ch of CODE) cliquer(toucheDe(m, ch), 'touche ' + ch);
+      await attendre(() => $('.ecran-coach'), 'écran coach');
+      verif('coach : le bon code ouvre l\'espace coach', !$('.modal-code'));
+      const stat = nom => texte($('.stat-val', $$('.ecran-coach .stat').find(s => texte($('.stat-label', s)) === nom)));
+      const D = Store.data;
+      verif('coach : suivi (problèmes, étoiles, amis)', stat('Problèmes') === String(D.journal.length) && stat('Étoiles') === String(D.etoiles) && stat('Amis') === String(D.carnet.length),
+        { problemes: stat('Problèmes'), etoiles: stat('Étoiles'), amis: stat('Amis') });
+      verif('coach : statistiques par étape et par planète', $$('.ecran-coach .ligne-stat').length >= 7);
+      verif('coach : grades réglables pour les notions jouables (3)', $$('.ecran-coach .bloc .champ-bloc .segmente').length >= 3);
+      arret('coach');
+      const inter = $$('.ecran-coach .interrupteur').find(l => texte(l).startsWith('Petits sons'));
+      const caseSons = $('input', inter);
+      const avant = D.reglages.sons;
+      caseSons.click();
+      verif('coach : réglage « Petits sons » changé et sauvegardé', D.reglages.sons === !avant && lireSauvegarde().reglages.sons === !avant && caseSons.checked === !avant);
+      cliquer(bouton('15 min'), '15 min');
+      verif('coach : temps de jeu « 15 min » sauvegardé', D.reglages.pause === 15 && lireSauvegarde().reglages.pause === 15);
+      caseSons.click();
+      cliquer(bouton('Retour'), 'Retour');
+      await attendre(() => $('.ecran-titre'), 'écran titre après le coach');
+      verif('coach → Retour : écran titre', true);
+    }
+
+    // Rappel de pause : jamais pendant un dialogue (repoussé d'une minute), puis « Faire une pause » → écran titre
+    async function rappelPause() {
+      rapport.etape = 'rappel de pause';
+      const R = Store.data.reglages;
+      const ancien = R.pause;
+      R.pause = 0.05;   // 3 secondes : valeur de test
+      cliquer(bouton('Jouer'), 'Jouer');
+      await attendre(() => J().moteur && $('.ecran-jeu'), 'planète');
+      const pan = J().monde.panneaux[0];
+      await marcherVers(pan.x, pan.y, 'panneau ' + pan.id, pan.id);
+      const rappel = () => $$('.modal-fond .modal').find(x => texte($('h2', x)) === 'Une petite pause ?');
+      await pause(3500);
+      verif('pause : pas de rappel pendant un dialogue', !rappel() && !!dialogueOuvert());
+      cliquer(bouton("D'accord", dialogueOuvert()), "D'accord");
+      const m = await attendre(rappel, 'rappel de pause (repoussé d\'une minute)', 65000);
+      verif('pause : le rappel arrive ensuite et Alvin s\'arrête', J().moteur.debug().bloque);
+      cliquer(bouton('Faire une pause', m), 'Faire une pause');
+      await attendre(() => $('.ecran-titre'), 'écran titre après la pause');
+      verif('pause : « Faire une pause » ramène à l\'écran titre', !J().moteur && !rappel());
+      R.pause = ancien;
+      Store.sauver();
+    }
+
+    async function verifierTicTac() {
+      rapport.etape = 'Tic-Tac';
+      const tt = Mondes.get('tictac');
+      verif('Tic-Tac : carte chargée mais problèmes absents (vague 2)', !!tt && !Jeu.planetePrete(tt));
+      verif('Station Grand Défi : pas encore chargée (vague 2)', !Mondes.get('defi'));
+      cliquer(bouton('Voyager'), 'Voyager (HUD)');
+      await attendre(() => $('.ecran-espace'), 'écran de voyage');
+      verifierEspace();
+      arret('espace');
+      const c = carteEspace(tt.nom);
+      verif('Tic-Tac : « Bientôt disponible », carte grisée', !!c && c.classList.contains('fermee') && texte($('.espace-detail', c)) === 'Bientôt disponible');
+      const avant = Store.data.planeteActuelle;
+      cliquer(c, 'carte Tic-Tac');
+      await pause(60);
+      verif('Tic-Tac : impossible d\'y aller (message, on reste sur l\'écran de voyage)',
+        !!$('.ecran-espace') && !$('.ecran-voyage') && /bientôt disponible/.test(texte($('#toast'))) && Store.data.planeteActuelle === avant, texte($('#toast')));
+      cliquer(bouton('Retour'), 'Retour');
+      await attendre(() => J().moteur && $('.ecran-jeu'), 'retour sur la planète');
+      Jeu.ouvrirPlanete('tictac');
+      await pause(30);
+      verif('Tic-Tac : même forcée, l\'ouverture revient sur une planète jouable', J().monde.id !== 'tictac' && Jeu.planetePrete(J().monde), J().monde.id);
+    }
+
+    // ------------------------------------------------------------------ la planète
+    async function arrivee(id, premiere) {
+      rapport.etape = 'arrivée ' + id;
+      const d = await attendre(() => { const x = J(); return $('.ecran-jeu') && x.moteur && x.monde && x.monde.id === id ? x : null; }, 'ouverture de la planète ' + id);
+      const { monde, etat, moteur } = d;
+      await pause(30);
+      verif(`${id} : planète ouverte, moteur actif`, moteur.debug().actif && Store.data.planeteActuelle === id);
+      verif(`${id} : HUD (nom de la planète)`, texte($('.hud-planete-textes b')) === monde.nom, texte($('.hud-planete-textes b')));
+      const aides = monde.pnj.filter(p => (etat.pnj[p.id] || 0) >= 4).length;
+      verif(`${id} : HUD (habitants aidés)`, texte($('.hud-planete-textes span')) === `${aides} / ${monde.pnj.length} habitants aidés`, texte($('.hud-planete-textes span')));
+      verif(`${id} : HUD (étoiles)`, texte($('.hud-etoiles-valeur')) === UI.fmt(Store.data.etoiles), texte($('.hud-etoiles-valeur')));
+      if (premiere) verif(`${id} : Alvin raconte l'arrivée`, !$('.hud-bulle').hidden && texte($('.hud-bulle-texte')) === norm(monde.arrivee), texte($('.hud-bulle-texte')));
+      // entre les deux blocs du haut du HUD, un toucher doit arriver à la carte
+      const a = $('.hud-planete').getBoundingClientRect(), b = $('.hud-actions').getBoundingClientRect();
+      if (b.left - a.right > 24 && Math.abs(a.top - b.top) < 40) {
+        const el = document.elementFromPoint((a.right + b.left) / 2, a.top + 20);
+        verif(`${id} : entre les blocs du HUD, le toucher arrive à la carte`, el === $('.monde-canvas'), el && String(el.className));
+      }
+      verifierCarte('arrivée');
+      return d;
+    }
+
+    // Marques des habitants, portes des zones et coffres : comme dans la sauvegarde
+    function verifierCarte(quand, majeur = true) {
+      const { monde, etat, moteur } = J();
+      const pbs = [];
+      for (const p of monde.pnj) {
+        const e = entite(p.id);
+        const att = (etat.pnj[p.id] || 0) >= 4 ? 'ok' : etat.zones.includes(p.zone) ? '!' : null;
+        if (!e || e.marque !== att) pbs.push(`${p.id} : marque ${e && e.marque} au lieu de ${att}`);
+      }
+      for (const z of monde.zones) {
+        for (const [x, y] of z.portes || []) {
+          const c = moteur.caseEn(x, y);
+          if (etat.zones.includes(z.id) === 'BP'.includes(c)) pbs.push(`porte (${x}, ${y}) de la zone ${z.id} : « ${c} »`);
+        }
+      }
+      for (const c of monde.coffres) {
+        const e = entite(c.id);
+        if (!e || !!e.ouvert !== etat.coffres.includes(c.id)) pbs.push('coffre ' + c.id);
+      }
+      verif(`${monde.id} : carte conforme à la sauvegarde (${quand})`, !pbs.length, pbs, majeur);
+    }
+
+    async function lirePanneau(pan) {
+      rapport.etape = 'panneau ' + pan.id;
+      await marcherVers(pan.x, pan.y, 'panneau ' + pan.id, pan.id);
+      const d = await attendre(dialogueOuvert, 'dialogue du panneau');
+      verif(`${J().monde.id} : panneau ${pan.id} lu`, texte($('.dialogue-nom b', d)) === 'Panneau' && texte($('.dialogue-texte', d)) === norm(pan.texte), texte($('.dialogue-texte', d)));
+      cliquer(bouton("D'accord", d), "D'accord");
+      await pause(20);
+      verif('panneau fermé, Alvin peut repartir', !dialogueOuvert() && !J().moteur.debug().bloque);
+    }
+
+    async function toucherPorte(z) {
+      rapport.etape = 'porte de la zone ' + z.id;
+      const { etat } = J();
+      const [x, y] = z.portes[0];
+      await marcherVers(x, y, 'porte de la zone ' + z.id, 'zone-' + z.id);
+      await pause(20);
+      const t = texte($('.hud-bulle-texte'));
+      verif(`${J().monde.id} : passage fermé touché → Alvin explique comment l'ouvrir`,
+        !$('.hud-bulle').hidden && t.startsWith(norm(z.message)) && t.includes(`Encore ${z.requis - etat.resolus} problème`), t);
+    }
+
+    async function fuseeSansRoute() {
+      rapport.etape = 'fusée sans route';
+      const { monde } = J();
+      await marcherVers(monde.fusee.x, monde.fusee.y, 'fusée', 'fusee');
+      const d = await attendre(dialogueOuvert, 'dialogue de la fusée');
+      verif('fusée avant la pièce : « pas encore de route »', /pas encore de route/.test(texte($('.dialogue-texte', d))), texte($('.dialogue-texte', d)));
+      cliquer(bouton("D'accord", d), "D'accord");
+    }
+
+    async function voyagerParLaFusee(id) {
+      rapport.etape = 'retour à la fusée';
+      const { monde } = J();
+      await marcherVers(monde.fusee.x, monde.fusee.y, 'fusée', 'fusee');
+      const d = await attendre(dialogueOuvert, 'dialogue de la fusée');
+      verif(`${monde.id} : la fusée propose de voyager`, /fusée est prête/.test(texte($('.dialogue-texte', d))) && !!bouton('Voyager', d), texte($('.dialogue-texte', d)));
+      cliquer(bouton('Voyager', d), 'Voyager');
+      await choisirPlanete(id);
+    }
+
+    function instantane() {
+      const { etat, monde } = J();
+      return {
+        resolus: etat.resolus, faits: { ...etat.pnj }, zones: etat.zones.slice(), terminee: !!etat.terminee,
+        etoiles: Store.data.etoiles, journal: Store.data.journal.length, niveau: Store.niveau(monde.notion),
+      };
+    }
+
+    async function parlerA(p, deja, tap) {
+      if (tap) await toucherReel(p);
+      else await marcherVers(p.x, p.y, 'habitant ' + p.nom, p.id);
+      const d = await attendre(dialogueOuvert, 'dialogue de ' + p.nom);
+      verif(`${p.nom} : dialogue (nom, rôle)`, texte($('.dialogue-nom b', d)) === p.nom && texte($('.dialogue-role', d)) === norm(p.role), texte($('.dialogue-nom', d)), false);
+      if (deja === 0) verif(`${p.nom} : se présente (bonjour)`, texte($('.dialogue-texte', d)) === norm(p.bonjour), texte($('.dialogue-texte', d)), false);
+      const pts = $$('.dialogue-progres span', d);
+      verif(`${p.nom} : progression ${deja}/4 affichée`, pts.length === 4 && pts.filter(s => s.classList.contains('fait')).length === deja, pts.length, false);
+      arret('dialogue');
+      return d;
+    }
+
+    // Après « Continuer » : dialogues, fenêtres et passages, dans l'ordre où ils viennent
+    async function traiterSuite(p, encore, aCote) {
+      const vus = [];
+      const bulles = new Set();
+      for (let i = 0; i < 3000; i++) {
+        if (Resolution.actif()) { vus.push('nouveau problème'); break; }
+        const m = $('.modal-fond .modal');
+        if (m) {
+          const t = texte($('h2', m));
+          if (t === 'Une petite pause ?') { await fermerPauseSiBesoin(); continue; }
+          vus.push('fenêtre : ' + t);
+          if (t === 'Une pièce pour la fusée !') arret('piece');
+          cliquer($('.modal-boutons .btn.principal', m) || $('.modal-boutons .btn', m), 'bouton de « ' + t + ' »');
+          await pause(20);
+          continue;
+        }
+        const d = dialogueOuvert();
+        if (d) {
+          const oui = bouton('Oui !', d);
+          if (oui) {
+            vus.push('on continue ?');
+            cliquer(encore ? oui : bouton('Plus tard', d), encore ? 'Oui !' : 'Plus tard');
+          } else {
+            const b = $('.dialogue-boutons .btn.principal', d);
+            vus.push('dialogue : ' + texte(b));
+            verif(`${p.nom} : remerciement`, texte($('.dialogue-texte', d)) === norm(p.merci), texte($('.dialogue-texte', d)), false);
+            if (aCote) { $('.dialogue-fond').click(); vus.push('(fermé en touchant à côté)'); } else cliquer(b, 'bouton du dialogue');
+          }
+          await pause(20);
+          continue;
+        }
+        if (!$('.hud-bulle').hidden) {
+          const t = texte($('.hud-bulle-texte'));
+          if (/^Un passage s'ouvre/.test(t) && !bulles.has(t)) { bulles.add(t); vus.push('passage : ' + t); }
+        }
+        if (!J().chaine) break;
+        await pause(20);
+      }
+      return vus;
+    }
+
+    async function quitterProbleme(p) {
+      await attendre(() => Resolution.actif() && $r('[data-action="quitter"]'), 'panneau de résolution');
+      const avant = instantane();
+      taper($r('[data-action="quitter"]'), 'quitter');
+      taper($r('[data-action="quitter-oui"]'), 'quitter : oui');
+      await pause(20);
+      const ap = instantane();
+      verif(`${p.nom} : quitter un problème ne compte rien et l'habitant attend`, !Resolution.actif() && ap.journal === avant.journal && ap.resolus === avant.resolus
+        && /t'attend quand tu veux/.test(texte($('.hud-bulle-texte'))) && !J().moteur.debug().bloque, texte($('.hud-bulle-texte')));
+    }
+
+    // Aide un habitant jusqu'à ses 4 problèmes (options : vrai toucher, quitter une fois, « Plus tard » puis revenir, fermer un dialogue en touchant à côté)
+    async function aiderHabitant(p, st, opts = {}) {
+      const { monde } = J();
+      const deja = J().etat.pnj[p.id] || 0;
+      rapport.etape = `${monde.id} : ${p.nom}`;
+      cliquer(bouton('Aider ' + p.nom, await parlerA(p, deja, opts.tap)), 'Aider ' + p.nom);
+      if (opts.quitter) {
+        await quitterProbleme(p);
+        cliquer(bouton('Aider ' + p.nom, await parlerA(p, deja, false)), 'Aider ' + p.nom);
+      }
+      for (let k = deja; k < 4; k++) {
+        const avant = instantane();
+        const mode = st.n % 9 === 4 ? 'erreurs' : 'bon';
+        const run = await resoudrePanneau(mode, p);
+        st.n++;
+        await attendre(() => !Resolution.actif() && !$('#resolution'), 'fermeture du panneau');
+        const ap = instantane();
+        const res = run.resultat;
+        const j = Store.data.journal[Store.data.journal.length - 1];
+        verif(`${p.nom} n°${k + 1} : résultat enregistré (journal, problèmes résolus, habitant, étoiles)`,
+          !!res && ap.journal === avant.journal + 1 && ap.resolus === avant.resolus + 1 && ap.faits[p.id] === k + 1
+          && ap.etoiles === avant.etoiles + res.etoiles && j.pnj === p.id && j.planete === monde.id && j.etoiles === res.etoiles && j.id === run.probleme.id,
+          { avant, ap, res }, false);
+        verif(`${p.nom} n°${k + 1} : HUD étoiles à jour`, texte($('.hud-etoiles-valeur')) === UI.fmt(Store.data.etoiles), texte($('.hud-etoiles-valeur')), false);
+        st.problemes++;
+        st.etoiles += res ? res.etoiles : 0;
+        st.etoilesParProbleme.push(res ? res.etoiles : 0);
+        if (mode === 'erreurs') st.avecErreurs++;
+
+        const aide = k + 1 === 4;
+        const encore = !aide && !(opts.plusTard && k === 1);
+        const aCote = !!(opts.aCote && aide);
+        const vus = await traiterSuite(p, encore, aCote);
+        const fin = instantane();
+        const nouvelles = monde.zones.filter(z => !avant.zones.includes(z.id) && fin.zones.includes(z.id));
+        const promo = fin.niveau !== avant.niveau;
+        const sauvee = fin.terminee && !avant.terminee;
+        const attendu = [];
+        if (aide) {
+          attendu.push('dialogue : Avec plaisir !');
+          if (aCote) attendu.push('(fermé en touchant à côté)');
+          if (p.chef) attendu.push('fenêtre : Une pièce pour la fusée !');
+        }
+        if (promo) attendu.push('fenêtre : Promotion !');
+        for (const z of nouvelles) attendu.push(`passage : Un passage s'ouvre vers « ${z.nom} » ! De nouveaux habitants t'attendent.`);
+        if (sauvee) attendu.push('fenêtre : Planète sauvée !');
+        if (!aide) { attendu.push('on continue ?'); if (encore) attendu.push('nouveau problème'); }
+        verif(`${p.nom} n°${k + 1} : suite dans l'ordre (${attendu.map(a => a.split(' : ')[0]).join(' > ')})`, JSON.stringify(vus) === JSON.stringify(attendu), { vus, attendu }, false);
+        if (aCote) verif(`${p.nom} : dialogue de remerciement fermé en touchant à côté → la suite continue`, JSON.stringify(vus) === JSON.stringify(attendu), vus);
+
+        // zones : ouvertes exactement aux seuils, portes changées, nouveaux habitants marqués
+        for (const z of monde.zones) {
+          if ((ap.resolus >= z.requis) !== fin.zones.includes(z.id)) verif(`${monde.id} : zone ${z.id} ouverte si et seulement si ${z.requis} problèmes`, false, { resolus: ap.resolus, zones: fin.zones });
+        }
+        for (const z of nouvelles) {
+          st.zones[z.id] = ap.resolus;
+          const portes = (z.portes || []).map(([x, y]) => J().moteur.caseEn(x, y));
+          const marques = monde.pnj.filter(q => q.zone === z.id).map(q => entite(q.id).marque);
+          verif(`${monde.id} : zone ${z.id} « ${z.nom} » ouverte au seuil de ${z.requis} problèmes (portes ${portes.join('')}, habitants « ! »)`,
+            ap.resolus === z.requis && portes.every(c => c === '=' || c === ':') && marques.every(x => x === '!') && J().moteur.debug().portesOuvertes.includes(z.id),
+            { resolus: ap.resolus, portes, marques });
+        }
+        if (promo) st.promotions.push(`grade ${fin.niveau} après ${st.problemes} problèmes`);
+        // HUD : objectif de la prochaine zone
+        const prochaine = monde.zones.find(z => !fin.zones.includes(z.id));
+        const obj = $('.hud-objectif');
+        verif(`${p.nom} n°${k + 1} : HUD objectif`, prochaine
+          ? !obj.hidden && texte($('.hud-objectif-texte')) === `${prochaine.nom} : ${Math.min(fin.resolus, prochaine.requis)} / ${prochaine.requis} problèmes`
+          : obj.hidden, texte($('.hud-objectif-texte')), false);
+
+        if (aide) {
+          verif(`${p.nom} aidé : marque « ok », ami dans le carnet, message`, entite(p.id).marque === 'ok' && Store.data.carnet.includes(monde.id + ':' + p.id)
+            && texte($('#toast')).includes(`${p.nom} rejoint ton carnet d'amis`), texte($('#toast')), false);
+          if (p.chef) {
+            st.piece = vus.includes('fenêtre : Une pièce pour la fusée !');
+            const suivante = Mondes.liste()[Mondes.liste().findIndex(m => m.id === monde.id) + 1];
+            verif(`${monde.id} : le chef donne la pièce de fusée → route vers ${suivante ? suivante.id : '—'} ouverte`, st.piece && (!suivante || Store.data.debloquees.includes(suivante.id)), Store.data.debloquees);
+          }
+        } else if (!encore) {
+          // « Plus tard » : la suite s'arrête, Alvin est libre ; on revient voir l'habitant
+          verif(`${p.nom} : « Plus tard » laisse Alvin libre`, !J().chaine && !dialogueOuvert() && !J().moteur.debug().bloque && !Resolution.actif());
+          cliquer(bouton('Aider ' + p.nom, await parlerA(p, k + 1, false)), 'Aider ' + p.nom);
+          verif(`${p.nom} : on revient le voir, il reprend où on en était (${k + 1}/4)`, true);
+        }
+        ecrire();
+      }
+    }
+
+    async function ouvrirCoffre(c, st, faute) {
+      rapport.etape = 'coffre ' + c.id;
+      const { monde } = J();
+      const avant = { etoiles: Store.data.etoiles, souvenirs: Store.data.souvenirs.length };
+      await marcherVers(c.x, c.y, 'coffre ' + c.id, c.id);
+      const m = await attendre(() => $('.modal-coffre'), 'fenêtre du coffre ' + c.id);
+      arret('coffre');
+      const calculer = e => {
+        const r = /^([\d ]+) ([+−×÷]) ([\d ]+) =$/.exec(e);
+        if (!r) throw new Error('calcul illisible : ' + e);
+        const g = +r[1].replace(/ /g, ''), d = +r[3].replace(/ /g, '');
+        return { '+': g + d, '−': g - d, '×': g * d, '÷': g / d }[r[2]];
+      };
+      const taperNombre = v => { for (const ch of String(v)) cliquer(toucheDe(m, ch), 'touche ' + ch); };
+      for (let i = 0; i < 3; i++) {
+        const r = calculer(texte($('.expr', m)));
+        if (faute && i === 0) {
+          taperNombre(r + 1);
+          cliquer($('.touche.valider', m), 'valider');
+          verif('coffre : une erreur → « Presque ! Essaie encore. »', texte($('.coffre-message', m)) === 'Presque ! Essaie encore.' && texte($('.reponse-ligne', m)) === '', texte($('.coffre-message', m)));
+        }
+        taperNombre(r);
+        cliquer($('.touche.valider', m), 'valider');
+        verif(`coffre ${c.id} : calcul ${i + 1} juste`, $('.reponse-ligne', m).classList.contains('juste'), texte($('.expr', m)), false);
+        await attendre(() => !document.body.contains(m) || !$('.reponse-ligne', m).classList.contains('juste'), 'calcul suivant du coffre');
+      }
+      await attendre(() => !$('.modal-coffre'), 'fermeture du coffre');
+      await pause(20);
+      const et = J().etat;
+      verif(`${monde.id} : coffre ${c.id} ouvert (souvenir « ${c.souvenir.nom} », +2 étoiles)`,
+        et.coffres.includes(c.id) && Store.data.souvenirs.includes(c.souvenir.id) && Store.data.etoiles === avant.etoiles + 2 && entite(c.id).ouvert === true
+        && lireSauvegarde().planetes[monde.id].coffres.includes(c.id) && /Le coffre s'ouvre/.test(texte($('.hud-bulle-texte'))),
+        { coffres: et.coffres, etoiles: [avant.etoiles, Store.data.etoiles] });
+      st.coffres.push(c.id);
+      // un coffre déjà ouvert : Alvin le rappelle
+      await marcherVers(c.x, c.y, 'coffre ' + c.id, c.id);
+      verif(`coffre ${c.id} déjà ouvert : Alvin rappelle le souvenir`, /déjà ouvert/.test(texte($('.hud-bulle-texte'))) && !$('.modal-coffre'), texte($('.hud-bulle-texte')), false);
+    }
+
+    async function rechargement() {
+      rapport.etape = 'rechargement simulé';
+      await pause(1700);   // la position est enregistrée 1,5 s après le dernier pas
+      const { monde, moteur } = J();
+      const id = monde.id;
+      const pos = { x: Math.round(moteur.joueur.x), y: Math.round(moteur.joueur.y) };
+      const brut = lireSauvegarde();
+      const ps = brut && brut.planetes[id] && brut.planetes[id].pos;
+      verif('sauvegarde : position d\'Alvin écrite après ses pas', !!ps && ps.x === pos.x && ps.y === pos.y, { pos, sauvee: ps });
+      const avant = JSON.parse(JSON.stringify(Store.data));
+      // « Rechargement » : tout s'arrête sans rien enregistrer de plus, la mémoire est brouillée, puis l'appli redémarre
+      Jeu.fermer();
+      Store.data = Object.assign({}, Store.data, { planetes: {}, etoiles: -1, carnet: [], souvenirs: [], journal: [] });
+      App.demarrer();
+      const D = Store.data;
+      const pbs = [];
+      for (const k of ['profil', 'reglages', 'notions', 'etoiles', 'carnet', 'souvenirs', 'debloquees', 'planeteActuelle', 'introVue']) {
+        if (JSON.stringify(D[k]) !== JSON.stringify(avant[k])) pbs.push(k);
+      }
+      for (const k of ['pos', 'zones', 'coffres', 'pnj', 'resolus', 'terminee', 'visitee']) {
+        if (JSON.stringify(D.planetes[id][k]) !== JSON.stringify(avant.planetes[id][k])) pbs.push(id + '.' + k);
+      }
+      if (D.journal.length !== avant.journal.length) pbs.push('journal');
+      verif(`rechargement : Store.charger() retrouve tout (position, zones, coffres, habitants, étoiles, carnet, journal…)`, !pbs.length, pbs);
+      await attendre(() => $('.ecran-titre'), 'écran titre après rechargement');
+      verif('rechargement : l\'appli redémarre sur l\'écran titre', true);
+      cliquer(bouton('Jouer'), 'Jouer');
+      const d = await attendre(() => { const x = J(); return x.moteur && $('.ecran-jeu') ? x : null; }, 'planète après rechargement');
+      verif('rechargement : Alvin est à la même place', Math.round(d.moteur.joueur.x) === pos.x && Math.round(d.moteur.joueur.y) === pos.y, { avant: pos, apres: d.moteur.joueur });
+      verifierCarte('après rechargement');
+      verif('rechargement : HUD (étoiles, habitants aidés)', texte($('.hud-etoiles-valeur')) === UI.fmt(D.etoiles)
+        && texte($('.hud-planete-textes span')) === `${d.monde.pnj.filter(p => (d.etat.pnj[p.id] || 0) >= 4).length} / 12 habitants aidés`);
+    }
+
+    async function jouerPlanete(id, premiere) {
+      const t0 = performance.now();
+      const { monde } = J();
+      const st = rapport.planetes[id] = { problemes: 0, etoiles: 0, avecErreurs: 0, n: 0, zones: {}, coffres: [], promotions: [], piece: false, etoilesParProbleme: [] };
+      await lirePanneau(monde.panneaux.find(p => p.zone === 1));
+      const z2 = monde.zones.find(z => z.id === 2);
+      if (!J().etat.zones.includes(2)) await toucherPorte(z2);
+      if (premiere && !Mondes.liste().some(m => Store.data.debloquees.includes(m.id) && m.id !== id)) await fuseeSansRoute();
+      let k = 0;
+      for (const z of monde.zones) {
+        verif(`${id} : zone ${z.id} « ${z.nom} » ouverte quand on y arrive`, J().etat.zones.includes(z.id), J().etat.zones);
+        const habitants = monde.pnj.filter(p => p.zone === z.id).sort((a, b) => (a.chef ? 1 : 0) - (b.chef ? 1 : 0));
+        for (const p of habitants) {
+          await aiderHabitant(p, st, { tap: premiere && k === 0, aCote: k === 0, plusTard: k === 1, quitter: k === 2 });
+          k++;
+        }
+        for (const c of monde.coffres.filter(q => q.zone === z.id)) await ouvrirCoffre(c, st, c === monde.coffres[0]);
+        if (premiere && z.id === 2) { await rechargement(); await visiterCarnet(); }
+      }
+      const et = J().etat;
+      verif(`${id} : planète terminée, 12 habitants aidés`, et.terminee && monde.pnj.every(p => et.pnj[p.id] >= 4) && texte($('.hud-planete-textes span')) === '12 / 12 habitants aidés' && $('.hud-objectif').hidden);
+      verif(`${id} : 12 nouveaux amis dans le carnet`, monde.pnj.every(p => Store.data.carnet.includes(id + ':' + p.id)));
+      verif(`${id} : tous les coffres ouverts (${monde.coffres.length})`, monde.coffres.every(c => et.coffres.includes(c.id)));
+      verif(`${id} : pièce de fusée reçue`, st.piece);
+      verifierCarte('fin de planète');
+      const md = J().moteur.debug();
+      verif(`${id} : moteur sans erreur`, !md.erreur, md.erreur);
+      st.moteur = { images: md.images, tempsMoyenMs: +md.tempsMoyenMs.toFixed(2), tempsMaxMs: +md.tempsMaxMs.toFixed(1), blocs: md.blocs };
+      delete st.n;
+      st.tempsVirtuel = Math.round(performance.now() - t0) + ' ms';
+      ecrire();
+    }
+
+    // ------------------------------------------------------------------ la partie
+    try {
+      verifierFichiers();
+      await premierLancement();
+      await histoire();
+      await arrivee('plusmoins', true);
+      arret('planete');
+      await visiteTitre();
+      const liste = SEULE ? [SEULE] : PLANETES;
+      if (!liste.every(id => PLANETES.includes(id))) throw new Error('planète inconnue ou pas jouable : ' + SEULE);
+      for (const [i, id] of liste.entries()) {
+        if (J().monde.id !== id) {
+          if (RAPIDE) preparerRapide(id);
+          if (i === 0) {
+            // planète seule : sa route est ouverte d'office (raccourci de test), on y va par l'écran de voyage
+            if (!Store.data.debloquees.includes(id)) Store.data.debloquees.push(id);
+            cliquer(bouton('Voyager'), 'Voyager (HUD)');
+            await choisirPlanete(id);
+          } else {
+            await voyagerParLaFusee(id);
+          }
+          await arrivee(id, true);
+        }
+        await jouerPlanete(id, i === 0);
+      }
+      await verifierTicTac();
+      await espaceCoach();
+      await rappelPause();
+      const D = Store.data;
+      rapport.bilan = {
+        problemes: D.journal.length, etoiles: D.etoiles, amis: D.carnet.length, souvenirs: D.souvenirs.length,
+        planetesOuvertes: D.debloquees, grades: Object.fromEntries(Object.entries(D.notions).map(([k, v]) => [k, v.niveau])),
+      };
+      rapport.fini = true;
+    } catch (e) {
+      if (e instanceof Arret) rapport.arret = e.message;
+      else {
+        rapport.exception = String(e && e.message || e);
+        rapport.pile = String(e && e.stack || '').split('\n').slice(0, 4);
+        verif('exception pendant « ' + rapport.etape + ' »', false, rapport.exception);
+      }
+    }
+    if (!rapport.arret && J().moteur) Jeu.fermer();   // plus d'animation inutile après la partie
+    rapport.ok = (rapport.fini || !!rapport.arret) && !rapport.echecs.length && !window.__erreurs.length;
+    ecrire();
+  })().catch(e => {
+    document.getElementById('resultat').textContent = JSON.stringify({ ok: false, exception: String(e && e.message || e), pile: String(e && e.stack).split('\n').slice(0, 4), erreursJS: window.__erreurs });
+  });
+  </script>
+</body>
+</html>

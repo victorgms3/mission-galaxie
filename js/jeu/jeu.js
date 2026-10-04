@@ -16,6 +16,8 @@ const Jeu = (() => {
   let minuteurPause = null;
   let minuteurBulle = null;
   let dialogueOuvert = null;
+  let generation = 0;   // change à chaque fermeture de planète : les suites en attente s'arrêtent
+  let chaine = 0;       // suites (dialogues, fenêtres, animations) en cours après un problème
 
   const ic = (nom, taille) => Ecrans.ic(nom, taille);
   const portraitPNJ = p => (typeof Art !== 'undefined' && Art.portraitPNJ ? Art.portraitPNJ(p.apparence) : '');
@@ -23,13 +25,26 @@ const Jeu = (() => {
   const pnjDe = id => monde.pnj.find(p => p.id === id);
   const faitsDe = id => etat.pnj[id] || 0;
   const zoneOuverte = z => etat.zones.includes(z);
+  const choix = t => t[Math.floor(Math.random() * t.length)];
+
+  // Une planète n'est jouable que si sa notion a des problèmes (les banques arrivent par vagues)
+  function planetePrete(m) {
+    return !!m && (Problemes.BANQUES[m.notion] || []).length > 0;
+  }
+
+  function planeteSuivante() {
+    const liste = Mondes.liste();
+    return liste[liste.findIndex(m => m.id === monde.id) + 1] || null;
+  }
 
   // ---------------------------------------------------------------------------
   // Ouvrir / fermer une planète
   // ---------------------------------------------------------------------------
   function ouvrirPlanete(id) {
     fermer();
-    monde = Mondes.get(id) || Mondes.liste()[0];
+    monde = Mondes.get(id);
+    // une planète pas encore prête (problèmes à venir) ne s'ouvre jamais : on revient sur une planète jouable
+    if (!planetePrete(monde)) monde = Mondes.liste().find(planetePrete) || Mondes.liste()[0];
     const D = Store.data;
     D.planeteActuelle = monde.id;
     if (!D.debloquees.includes(monde.id)) D.debloquees.push(monde.id);
@@ -54,7 +69,7 @@ const Jeu = (() => {
       surDeplacement: (x, y) => {
         etat.pos = { x: Math.round(x), y: Math.round(y) };
         clearTimeout(minuteurSauvegarde);
-        minuteurSauvegarde = setTimeout(Store.sauver, 1500);
+        minuteurSauvegarde = setTimeout(() => { minuteurSauvegarde = null; Store.sauver(); }, 1500);
       },
     });
     moteur.demarrer();
@@ -66,6 +81,9 @@ const Jeu = (() => {
   }
 
   function fermer() {
+    generation++;
+    chaine = 0;
+    if (minuteurSauvegarde) { clearTimeout(minuteurSauvegarde); minuteurSauvegarde = null; Store.sauver(); }
     if (moteur) { moteur.arreter(); moteur = null; }
     clearTimeout(minuteurPause);
     clearTimeout(minuteurBulle);
@@ -129,7 +147,7 @@ const Jeu = (() => {
   }
 
   function majHud() {
-    if (!ui.racine) return;
+    if (!ui.racine || !monde) return;
     const aides = monde.pnj.filter(p => faitsDe(p.id) >= PAR_PNJ).length;
     ui.titre.textContent = monde.nom;
     ui.sousTitre.textContent = `${aides} / ${monde.pnj.length} habitants aidés`;
@@ -145,8 +163,8 @@ const Jeu = (() => {
     }
   }
 
-  // Alvin raconte (bulle en bas de l'écran)
-  function raconter(texte, humeur = 'normal', duree = 9000) {
+  // Alvin raconte (bulle en bas de l'écran) ; surFinVoix : appelé quand il a fini de parler
+  function raconter(texte, humeur = 'normal', duree = 9000, surFinVoix = null) {
     if (!ui.bulle) return;
     ui.bulleTexte.textContent = texte;
     ui.bullePortrait.innerHTML = portraitAlvin(humeur);
@@ -154,7 +172,7 @@ const Jeu = (() => {
     ui.bulle.classList.remove('apparait');
     void ui.bulle.offsetWidth;
     ui.bulle.classList.add('apparait');
-    if (R().alvinParle) Voix.dire(texte);
+    if (R().alvinParle) Voix.dire(texte, surFinVoix ? { onFin: surFinVoix } : undefined);
     clearTimeout(minuteurBulle);
     if (duree) minuteurBulle = setTimeout(fermerBulle, duree);
   }
@@ -164,12 +182,13 @@ const Jeu = (() => {
 
   // ---------------------------------------------------------------------------
   // Dialogues avec les habitants
+  // surFermer : appelé si l'enfant ferme le dialogue en touchant à côté (aucun bouton choisi)
   // ---------------------------------------------------------------------------
-  function dialogue({ portrait, nom, role, texte, progres, boutons }) {
+  function dialogue({ portrait, nom, role, texte, progres, boutons, surFermer = null }) {
     fermerDialogue();
     fermerBulle();
     if (moteur) moteur.bloquer(true);
-    const boite = h('div', { class: 'dialogue carte-papier apparait', role: 'dialog' },
+    const boite = h('div', { class: 'dialogue carte-papier apparait', role: 'dialog', 'aria-label': nom },
       h('div', { class: 'dialogue-portrait', html: portrait || '' }),
       h('div', { class: 'dialogue-corps' },
         h('div', { class: 'dialogue-nom' }, h('b', null, nom), role && h('span', { class: 'dialogue-role' }, role)),
@@ -182,7 +201,11 @@ const Jeu = (() => {
         }, b.icone ? ic(b.icone, 22) : null, b.label)))),
       h('button', { class: 'btn-rond petit dialogue-ecouter', 'aria-label': 'Réécouter', onclick: () => Voix.dire(texte) }, ic('haut-parleur', 20)));
     const fond = h('div', { class: 'dialogue-fond' }, boite);
-    fond.addEventListener('click', e => { if (e.target === fond) fermerDialogue(); });
+    fond.addEventListener('click', e => {
+      if (e.target !== fond) return;
+      fermerDialogue();
+      if (surFermer) surFermer();
+    });
     document.body.append(fond);
     dialogueOuvert = fond;
     if (R().alvinParle) Voix.dire(texte);
@@ -194,11 +217,12 @@ const Jeu = (() => {
   }
 
   function interagir(ent) {
-    if (!monde || dialogueOuvert) return;
+    if (!monde || dialogueOuvert || chaine) return;
     if (ent.type === 'pnj') parlerA(pnjDe(ent.id));
     else if (ent.type === 'coffre') coffre(monde.coffres.find(c => c.id === ent.id));
     else if (ent.type === 'panneau') panneau(monde.panneaux.find(p => p.id === ent.id));
     else if (ent.type === 'fusee') fusee();
+    else if (ent.type === 'porte') porte(ent);
   }
 
   function parlerA(p) {
@@ -231,8 +255,6 @@ const Jeu = (() => {
     });
   }
 
-  const choix = t => t[Math.floor(Math.random() * t.length)];
-
   // ---------------------------------------------------------------------------
   // Un problème
   // ---------------------------------------------------------------------------
@@ -245,10 +267,12 @@ const Jeu = (() => {
     });
     if (!probleme) { UI.toast('Aucun problème disponible pour le moment.'); return; }
     if (moteur) moteur.bloquer(true);
+    const gen = generation;
     Resolution.lancer({
       probleme, niveau,
       pnj: { nom: p.nom, portrait: portraitPNJ(p) },
       surFin: res => {
+        if (gen !== generation) return;
         if (moteur) moteur.bloquer(false);
         if (!res) { raconter(`${p.nom} t'attend quand tu veux !`, 'normal', 5000); return; }
         etat.vus = [...(etat.vus || []), probleme.id].slice(-200);
@@ -264,33 +288,34 @@ const Jeu = (() => {
     });
   }
 
+  // Après un problème : l'état est mis à jour tout de suite (rien ne se perd si l'enfant quitte),
+  // puis on montre dans l'ordre : remerciements et pièce de fusée, promotion, passages qui s'ouvrent,
+  // planète sauvée, et enfin « on continue ? » (le problème suivant ne démarre qu'après tout cela).
   function apresProbleme(p, res, libre) {
+    const D = Store.data;
     if (moteur) moteur.texteFlottant(p.x, p.y - 1, `+${res.etoiles} ★`, '#c7962a');
     majHud();
     const suite = [];
     const fait = faitsDe(p.id);
+    const aide = !libre && fait >= PAR_PNJ;   // ce problème termine l'aide à cet habitant
+    let ensuite = null;                        // action à la toute fin (problème suivant)
 
-    if (!libre && fait >= PAR_PNJ) {
+    if (aide) {
       if (moteur) moteur.majEntite(p.id, { marque: 'ok' });
       const cle = monde.id + ':' + p.id;
-      if (!Store.data.carnet.includes(cle)) Store.data.carnet.push(cle);
+      if (!D.carnet.includes(cle)) D.carnet.push(cle);
       suite.push(fin => dialogue({
         portrait: portraitPNJ(p), nom: p.nom, role: p.role, texte: p.merci,
         progres: { fait: PAR_PNJ, total: PAR_PNJ },
         boutons: [{ label: 'Avec plaisir !', classe: 'principal', action: fin }],
+        surFermer: fin,
       }));
       suite.push(fin => { UI.toast(`${p.nom} rejoint ton carnet d'amis !`); fin(); });
-      if (p.chef) suite.push(pieceDeFusee);
-    } else if (!libre) {
-      suite.push(fin => dialogue({
-        portrait: portraitPNJ(p), nom: p.nom, role: p.role,
-        texte: choix(['Bravo, c’est exactement ça ! Tu en fais un autre ?', 'Merci beaucoup ! J’ai encore un problème, tu veux bien ?', 'Génial ! On continue ?']),
-        progres: { fait, total: PAR_PNJ },
-        boutons: [
-          { label: 'Plus tard', classe: 'secondaire', action: fin },
-          { label: 'Oui !', classe: 'principal', icone: 'crayon', action: () => { fin(); lancerProbleme(p); } },
-        ],
-      }));
+      if (p.chef) {
+        const suivante = planeteSuivante();
+        if (suivante && !D.debloquees.includes(suivante.id)) D.debloquees.push(suivante.id);
+        suite.push(fin => pieceDeFusee(suivante, fin));
+      }
     }
 
     if (Store.verifierPromotion(monde.notion)) {
@@ -312,12 +337,18 @@ const Jeu = (() => {
       if (!zoneOuverte(z.id) && etat.resolus >= z.requis) {
         etat.zones.push(z.id);
         suite.push(fin => {
-          if (moteur) moteur.ouvrirZone(z.id, true);
-          monde.pnj.filter(q => q.zone === z.id && faitsDe(q.id) < PAR_PNJ).forEach(q => moteur && moteur.majEntite(q.id, { marque: '!' }));
+          if (moteur) {
+            moteur.ouvrirZone(z.id, true);   // la caméra montre le passage qui s'ouvre
+            monde.pnj.filter(q => q.zone === z.id && faitsDe(q.id) < PAR_PNJ).forEach(q => moteur.majEntite(q.id, { marque: '!' }));
+          }
           Sons.victoire();
-          raconter(`Un passage s'ouvre vers « ${z.nom} » ! De nouveaux habitants t'attendent.`, 'content', 8000);
           majHud();
-          setTimeout(fin, 600);
+          // on laisse le temps de voir le passage (et d'écouter Alvin) avant la suite
+          const debut = Date.now();
+          const parle = R().alvinParle && Voix.disponible;
+          raconter(`Un passage s'ouvre vers « ${z.nom} » ! De nouveaux habitants t'attendent.`, 'content', 9000,
+            () => setTimeout(fin, Math.max(300, 2400 - (Date.now() - debut))));
+          setTimeout(fin, parle ? 9000 : 2400);
         });
       }
     }
@@ -336,35 +367,61 @@ const Jeu = (() => {
         UI.confettis(document.body, 40);
       });
     }
+
+    if (!aide) {
+      suite.push(fin => dialogue({
+        portrait: portraitPNJ(p), nom: p.nom, role: p.role,
+        texte: libre
+          ? 'Merci ! Tu veux encore t’entraîner avec moi ?'
+          : choix(['Bravo, c’est exactement ça ! Tu en fais un autre ?', 'Merci beaucoup ! J’ai encore un problème, tu veux bien ?', 'Génial ! On continue ?']),
+        progres: libre ? null : { fait, total: PAR_PNJ },
+        boutons: [
+          { label: 'Plus tard', classe: 'secondaire', action: fin },
+          { label: 'Oui !', classe: 'principal', icone: 'crayon', action: () => { ensuite = () => lancerProbleme(p, libre); fin(); } },
+        ],
+        surFermer: fin,
+      }));
+    }
+
     Store.sauver();
-    enchainer(suite);
+    enchainer(suite, () => { if (ensuite) ensuite(); });
   }
 
-  function enchainer(etapes) {
-    const suivante = () => { const e = etapes.shift(); if (e) e(suivante); else majHud(); };
+  // Enchaîne des étapes (dialogues, fenêtres, animations) ; chacune appelle fin() une seule fois quand elle est finie.
+  // Si la planète est fermée entre-temps, la suite s'arrête (l'état, lui, est déjà enregistré).
+  function enchainer(etapes, final) {
+    const gen = generation;
+    chaine++;
+    const suivante = () => {
+      if (gen !== generation) return;
+      const e = etapes.shift();
+      if (!e) {
+        chaine = Math.max(0, chaine - 1);
+        majHud();
+        if (final) final();
+        return;
+      }
+      let fait = false;
+      e(() => { if (!fait) { fait = true; suivante(); } });
+    };
     suivante();
   }
 
-  // Le chef donne la pièce de fusée qui ouvre la route vers la planète suivante
-  function pieceDeFusee(fin) {
+  // Le chef donne la pièce de fusée qui ouvre la route vers la planète suivante (déjà débloquée dans l'état)
+  function pieceDeFusee(suivante, fin) {
     const D = Store.data;
-    const liste = Mondes.liste();
-    const i = liste.findIndex(m => m.id === monde.id);
-    const suivante = liste[i + 1];
+    Sons.victoire();
     if (!suivante) {
       UI.modal({
         titre: 'Mission accomplie !',
         contenu: [h('div', { class: 'portrait-modal', html: portraitAlvin('content') }),
-          h('p', null, `Tu as aidé tous les chefs de la galaxie, ${D.profil.prenom} ! Tu es une vraie héroïne des maths. Tu peux revenir sur toutes les planètes pour t'entraîner encore.`.replace('une vraie héroïne', Store.G('une vraie héroïne', 'un vrai héros')))],
+          h('p', null, `Tu as aidé tous les chefs de la galaxie, ${D.profil.prenom} ! Tu es ${Store.G('une vraie héroïne', 'un vrai héros')} des maths. Tu peux revenir sur toutes les planètes pour t'entraîner encore.`)],
         boutons: [{ label: 'Merci Alvin !', classe: 'principal', action: fin }],
         fermable: false,
       });
       UI.confettis(document.body, 50);
       return;
     }
-    if (!D.debloquees.includes(suivante.id)) D.debloquees.push(suivante.id);
-    Store.sauver();
-    Sons.victoire();
     const texte = planetePrete(suivante)
       ? `Grâce à cette pièce, ma fusée peut voler jusqu'à la ${suivante.nom} ! Retourne à la fusée quand tu veux partir.`
       : `Grâce à cette pièce, ma fusée pourra voler jusqu'à la ${suivante.nom}. Ses habitants préparent encore leurs problèmes : elle ouvrira très bientôt !`;
@@ -373,13 +430,9 @@ const Jeu = (() => {
       contenu: [h('div', { class: 'portrait-modal', html: portraitAlvin('content') }), h('p', null, texte)],
       boutons: [{ label: 'Génial !', classe: 'principal', action: fin }],
       fermable: false,
+      classe: 'modal-piece',
     });
     if (R().alvinParle) Voix.dire(texte);
-  }
-
-  // Une planète n'est jouable que si sa notion a des problèmes (les banques arrivent par vagues)
-  function planetePrete(m) {
-    return !!m && (Problemes.BANQUES[m.notion] || []).length > 0;
   }
 
   // ---------------------------------------------------------------------------
@@ -392,6 +445,7 @@ const Jeu = (() => {
       return;
     }
     if (moteur) moteur.bloquer(true);
+    const gen = generation;
     const calculs = Problemes.calculMental(Store.niveau(monde.notion), monde.notion, 3);
     let i = 0, justes = 0, essais = 0, saisie = '', verrou = false;
     const expr = h('span', { class: 'expr' });
@@ -423,6 +477,7 @@ const Jeu = (() => {
       if (bon) { justes++; Sons.bien(); boite.classList.add('juste'); pastilles.children[i].classList.add('juste'); message.textContent = 'Bravo !'; }
       else { boite.textContent = UI.fmt(k.r); boite.classList.add('corrige'); pastilles.children[i].classList.add('rate'); message.textContent = `C'était ${UI.fmt(k.r)}.`; }
       setTimeout(() => {
+        if (gen !== generation || !document.body.contains(fenetre.fond)) return;   // fermé entre-temps (« Plus tard », départ)
         i++; essais = 0; saisie = ''; verrou = false; boite.className = 'reponse-ligne';
         if (i < calculs.length) { message.textContent = 'Calcul suivant :'; afficher(); return; }
         fenetre.fermer();
@@ -448,7 +503,7 @@ const Jeu = (() => {
   }
 
   // ---------------------------------------------------------------------------
-  // Panneaux et fusée
+  // Panneaux, passages fermés et fusée
   // ---------------------------------------------------------------------------
   function panneau(p) {
     if (!p) return;
@@ -457,6 +512,15 @@ const Jeu = (() => {
       nom: 'Panneau', texte: p.texte,
       boutons: [{ label: "D'accord", classe: 'principal' }],
     });
+  }
+
+  // Pont cassé ou barrière : Alvin explique ce qu'il faut faire pour l'ouvrir
+  function porte(ent) {
+    const z = monde.zones.find(q => q.id === ent.zone);
+    if (!z || zoneOuverte(z.id)) return;
+    const reste = Math.max(0, z.requis - etat.resolus);
+    const encore = reste ? ` Encore ${reste} problème${reste > 1 ? 's' : ''} à résoudre !` : '';
+    raconter((z.message || 'Ce passage est encore fermé.') + encore, 'reflechit', 9000);
   }
 
   function fusee() {
@@ -478,7 +542,8 @@ const Jeu = (() => {
     clearTimeout(minuteurPause);
     if (!minutes) return;
     minuteurPause = setTimeout(() => {
-      if (document.getElementById('resolution')) { programmerPause(2); return; }
+      // jamais au milieu d'un problème, d'un dialogue ou d'une fenêtre : on repousse un peu
+      if (document.getElementById('resolution') || dialogueOuvert || chaine || document.querySelector('.modal-fond')) { programmerPause(1); return; }
       if (moteur) moteur.bloquer(true);
       UI.modal({
         titre: 'Une petite pause ?',
@@ -494,5 +559,9 @@ const Jeu = (() => {
     }, minutes * 60000);
   }
 
-  return { ouvrirPlanete, fermer, planetePrete, debug: () => ({ moteur, monde, etat }) };
+  return {
+    ouvrirPlanete, fermer, planetePrete,
+    // état courant (tests et débogage)
+    debug: () => ({ moteur, monde, etat, chaine, dialogue: !!dialogueOuvert }),
+  };
 })();

@@ -17,6 +17,9 @@ input, select { -webkit-user-select: text; user-select: text; }
 
 .hud { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; padding: 12px; gap: 10px; }
 .hud > *, .hud button { pointer-events: auto; }
+/* la bande du haut laisse passer les touchers vers la carte entre ses deux blocs */
+.hud > .hud-haut { pointer-events: none; }
+.hud-haut > * { pointer-events: auto; }
 .hud-haut { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
 .hud-planete { display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border-radius: 999px; }
 .hud-vignette { width: 44px; height: 44px; display: block; flex: none; }

@@ -12,6 +12,10 @@ const Ecrans = (() => {
     defi: { nom: 'Grand Défi', detail: 'problèmes à deux étapes' },
   };
 
+  // Notions jouables (leurs problèmes sont écrits) et planètes à montrer dans le carnet
+  const notionsJouables = () => Object.entries(NOTIONS).filter(([id]) => (Problemes.BANQUES[id] || []).length > 0);
+  const planetesVisitables = () => Mondes.liste().filter(m => Store.data.debloquees.includes(m.id) && Jeu.planetePrete(m));
+
   // Icône au trait (repli texte si le module n'est pas chargé)
   function ic(nom, taille = 24) {
     if (typeof Icone !== 'undefined') return Icone.creer(nom, taille);
@@ -92,7 +96,8 @@ const Ecrans = (() => {
   // ---------------------------------------------------------------------------
   function titre() {
     const D = Store.data;
-    const planete = Mondes.get(D.planeteActuelle) || Mondes.liste()[0];
+    let planete = Mondes.get(D.planeteActuelle);
+    if (!Jeu.planetePrete(planete)) planete = Mondes.liste().find(Jeu.planetePrete) || Mondes.liste()[0];
     UI.ecran('ecran-titre',
       h('div', { class: 'titre-contenu' },
         portraitAlvin('content', 'portrait-titre'),
@@ -171,7 +176,7 @@ const Ecrans = (() => {
       },
         h('span', { class: 'espace-vignette', html: typeof Art !== 'undefined' && Art.vignettePlanete ? Art.vignettePlanete(m.id) : '' }),
         h('span', { class: 'espace-nom' }, m.nom),
-        h('span', { class: 'espace-detail' }, !prete ? 'Bientôt disponible' : ouverte ? `${aides} / 12 habitants aidés` : 'Route fermée'),
+        h('span', { class: 'espace-detail' }, !prete ? 'Bientôt disponible' : ouverte ? `${aides} / ${m.pnj.length} habitants aidés` : 'Route fermée'),
         !ouverte && h('span', { class: 'espace-cadenas' }, ic('cadenas', 20)),
         ici && h('span', { class: 'espace-ici' }, 'Tu es ici')));
     });
@@ -213,8 +218,7 @@ const Ecrans = (() => {
       onglets.find(o => o.id === actif).rendre();
     }
     function rendreAmis() {
-      for (const m of Mondes.liste()) {
-        if (!D.debloquees.includes(m.id)) continue;
+      for (const m of planetesVisitables()) {
         const grille = h('div', { class: 'carnet-grille' });
         m.pnj.forEach(p => {
           const connu = D.carnet.includes(m.id + ':' + p.id);
@@ -227,8 +231,7 @@ const Ecrans = (() => {
       }
     }
     function rendreSouvenirs() {
-      for (const m of Mondes.liste()) {
-        if (!D.debloquees.includes(m.id)) continue;
+      for (const m of planetesVisitables()) {
         const grille = h('div', { class: 'carnet-grille' });
         m.coffres.forEach(c => {
           const trouve = D.souvenirs.includes(c.souvenir.id);
@@ -241,7 +244,7 @@ const Ecrans = (() => {
     }
     function rendreGrades() {
       const liste = h('div', { class: 'carnet-grades' });
-      for (const [id, n] of Object.entries(NOTIONS)) {
+      for (const [id, n] of notionsJouables()) {
         const niveau = Store.niveau(id);
         const recents = D.notions[id].historique.slice(-10).reduce((a, b) => a + b, 0);
         liste.append(h('div', { class: 'carnet-grade carte-papier' },
@@ -351,7 +354,7 @@ const Ecrans = (() => {
         h('section', { class: 'bloc carte-papier' },
           h('h2', null, 'Grades'),
           h('p', { class: 'petit' }, "Chaque grade monte tout seul quand l'enfant réussit 8 des 10 derniers problèmes de la notion. Vous pouvez aussi le régler ici : 1 = nombres jusqu'à 100, 2 = jusqu'à 1 000, 3 = jusqu'à 10 000 avec problèmes pièges."),
-          Object.entries(NOTIONS).map(([id, n]) => h('div', { class: 'champ-bloc' },
+          notionsJouables().map(([id, n]) => h('div', { class: 'champ-bloc' },
             h('span', { class: 'champ-label' }, `${n.nom} (${n.detail})`),
             segmente([1, 2, 3].map(k => ({ v: k, label: String(k) })), Store.niveau(id), v => {
               D.notions[id].niveau = v;
