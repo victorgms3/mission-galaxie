@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Test — résolution guidée</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&family=Fredoka:wght@500;600;700&display=swap">
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/resolution.css">
+  <style>
+    body { margin: 0; background: #fbf7ef; font-family: 'Andika', 'Trebuchet MS', sans-serif; }
+    .fin-test { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; font-size: 22px; }
+    .fin-test button { font: inherit; padding: 12px 24px; border-radius: 14px; border: 2px solid #e3d9c8; background: #fff; }
+  </style>
+</head>
+<body>
+  <!--
+    Paramètres :
+      ?exemple=ex-GT&niveau=1          lance un exemple de tests/exemples.js (niveau = grade 1, 2 ou 3)
+      &auto=1                          résout automatiquement (bon chemin) et écrit le rapport dans <pre id="resultat">
+      &erreurs=1 | &indices=1 | &passer=1 (grade 3 : saute le schéma puis se trompe d'opération) | &glisse=1 (glisser-déposer)
+      &tous=1                          tous les exemples × tous les grades × (bon chemin, erreurs, indices, schéma passé), puis quitter/fermer
+      &banque=paquets-1&n=20           résout automatiquement n problèmes tirés de cette banque, à chaque grade autorisé
+      &etape=schema[&e=1]              s'arrête à cette étape (lire, question, infos, plan, schema, operation, calcul, reponse, fin)
+         + &faux=1 (calcul faux une fois) &outil=1 (ouvre l'aide) &partiel=1 (une carte posée) &indice=1 (un indice) &passerChoix=1
+      &piege=1|0  &voix=1  &tempo=0.05
+  -->
+  <div id="toast" class="toast" role="status"></div>
+  <pre id="resultat" hidden>en cours…</pre>
+
+  <script src="../js/core/ui.js"></script>
+  <script src="../js/core/storage.js"></script>
+  <script src="../js/core/icones.js"></script>
+  <script src="../js/core/voix.js"></script>
+  <script src="../js/core/sons.js"></script>
+  <script src="../js/art/art.js"></script>
+  <script src="../js/problemes/moteur.js"></script>
+  <script src="exemples.js"></script>
+  <script src="../js/resolution/widgets.js"></script>
+  <script src="../js/resolution/resolution.js"></script>
+  <script>
+  'use strict';
+  (async () => {
+    const params = new URLSearchParams(location.search);
+    const prm = k => params.get(k);
+    const sortie = document.getElementById('resultat');
+    const erreursJS = [];
+    window.addEventListener('error', e => {
+      const f = (e.filename || '').split('/').pop();
+      if (/^(icones|art|base)\./.test(f) && /Unexpected|not defined/.test(e.message || '') === false) return;
+      erreursJS.push(`${f}:${e.lineno} ${e.message}`);
+    });
+    const ecrire = obj => { sortie.textContent = JSON.stringify(obj, null, 1); };
+
+    Store.data.reglages.alvinParle = prm('voix') === '1';
+    Store.data.reglages.lectureAuto = prm('voix') === '1';
+    Store.data.reglages.sons = prm('voix') === '1';
+    Store.data.profil = { prenom: 'Léa', genre: 'f', amis: [] };
+
+    const CTX = { enfant: { n: 'Léa', g: 'f' }, pnj: { n: 'Zubi', g: 'm' }, amis: [] };
+    const APPARENCE = { espece: 'bulle', couleur: '#6cc4a1', accessoire: 'chapeau' };
+    const PNJ = { nom: 'Zubi', portrait: typeof Art !== 'undefined' && Art.portraitPNJ ? Art.portraitPNJ(APPARENCE) : '' };
+
+    function trouverModele(id) {
+      for (const n of Problemes.NOTIONS) {
+        const m = Problemes.BANQUES[n].find(x => x.id === id);
+        if (m) return { m, notion: n };
+      }
+      return null;
+    }
+    function fabriquer(m, notion, niveau, piege) {
+      for (let i = 0; i < 30; i++) {
+        const p = Problemes.instancier(m, notion, niveau, CTX, piege == null ? {} : { piege });
+        if (p && (!piege || p.distracteur || m.sansPiege || i > 20)) return p;
+      }
+      return null;
+    }
+
+    // ------------------------------------------------------------------
+    // Automate : joue l'enfant en touchant le vrai DOM
+    // ------------------------------------------------------------------
+    const D = () => Resolution.debug();
+    const pause = ms => new Promise(r => setTimeout(r, ms));
+    async function attendre(cond, quoi, max = 1500) {
+      for (let i = 0; i < max; i++) { if (cond()) return; await pause(20); }
+      throw new Error('délai dépassé : ' + quoi + ' (étape ' + D().etape + ')');
+    }
+    const $ = s => document.querySelector('#resolution ' + s);
+    const $$ = s => [...document.querySelectorAll('#resolution ' + s)];
+    function taper(el, quoi) { if (!el) throw new Error('introuvable : ' + quoi); el.click(); }
+    function pointeur(el, type, x, y, id) {
+      el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: id, isPrimary: true, pointerType: 'touch' }));
+    }
+    function toucher(el, quoi) {
+      if (!el) throw new Error('introuvable : ' + quoi);
+      const r = el.getBoundingClientRect();
+      pointeur(el, 'pointerdown', r.left + r.width / 2, r.top + r.height / 2, 7);
+      pointeur(el, 'pointerup', r.left + r.width / 2, r.top + r.height / 2, 7);
+    }
+    function glisser(carte, cible) {
+      cible.scrollIntoView({ block: 'center' });
+      const a = carte.getBoundingClientRect(), b = cible.getBoundingClientRect();
+      const bx = b.left + b.width / 2, by = b.top + b.height / 2;
+      pointeur(carte, 'pointerdown', a.left + 8, a.top + 8, 9);
+      pointeur(carte, 'pointermove', a.left + 30, a.top + 30, 9);
+      pointeur(carte, 'pointermove', bx, by, 9);
+      pointeur(carte, 'pointerup', bx, by, 9);
+    }
+    const touche = ch => taper($$('.clavier .touche').find(b => b.textContent === ch), 'touche ' + ch);
+    const valider = () => taper($('.clavier .touche.valider'), 'valider');
+    const effacer = () => taper($('.clavier .touche.effacer'), 'effacer');
+
+    async function placerCarte(k, slot, parGlisse) {
+      const carte = $(`.res-plateau .res-carte[data-k="${k}"]`);
+      const c = $(`.case[data-slot="${slot}"]`);
+      if (parGlisse) glisser(carte, c);
+      else { toucher(carte, 'carte ' + k); taper(c, 'case ' + slot); }
+      await pause(5);
+    }
+
+    async function ecrireNombre(v) {
+      if ($('.pose')) {
+        const cells = $$('.pose-resultat');
+        const n = cells.length;
+        const s = String(v).padStart(n, ' ');
+        if (String(v).length > n) throw new Error('résultat trop long pour la pose');
+        for (let i = n - 1; i >= 0; i--) {
+          taper(cells[i], 'case du résultat');
+          if (s[i] === ' ') { if (cells[i].textContent) effacer(); } else touche(s[i]);
+        }
+      } else if ($('.champ-h')) {
+        const ch = $('.champ-h'), cm = $('.champ-min');
+        taper(ch, 'heures');
+        while (ch.textContent) effacer();
+        for (const c of String(Math.floor(v / 60))) touche(c);
+        taper(cm, 'minutes');
+        while (cm.textContent) effacer();
+        for (const c of String(v % 60)) touche(c);
+      } else {
+        const b = $('.res-boite-reponse');
+        while (b.textContent) effacer();
+        for (const c of String(v)) touche(c);
+      }
+    }
+
+    async function agir(d, mode, faites) {
+      const p = d.probleme;
+      const cle = d.etape + d.e;
+      const fauter = !!mode.erreurs && !faites.has(cle);
+      if (fauter) faites.add(cle);
+      const indices = async () => {
+        if (!mode.indices) return;
+        for (let i = 0; i < 2; i++) {
+          const b = $('[data-action="indice"]');
+          if (b && !b.hidden) { b.click(); await pause(5); }
+        }
+      };
+      switch (d.etape) {
+        case 'lire':
+          taper($('[data-action="compris"]'), 'compris');
+          return;
+        case 'question':
+          await indices();
+          if (fauter) { taper($$('.phrase:not(.est-question)')[0], 'phrase'); await pause(5); }
+          taper($('.phrase.est-question'), 'question');
+          return;
+        case 'infos':
+          await indices();
+          if (fauter && p.distracteur) { taper($(`.donnee[data-k="${p.distracteur}"]`), 'distracteur'); await pause(5); }
+          for (const k of p.utiles) {
+            const el = $$(`.donnee[data-k="${k}"]`).find(x => x.classList.contains('cliquable'));
+            if (el) { taper(el, 'donnée ' + k); await pause(5); }
+          }
+          return;
+        case 'plan': {
+          await indices();
+          const q = p.etapes[0].question;
+          if (fauter) { taper($$('.choix-plan').find(b => b.textContent !== q), 'mauvais plan'); await pause(5); }
+          taper($$('.choix-plan').find(b => b.textContent === q), 'bon plan');
+          return;
+        }
+        case 'schema': {
+          if ($('[data-action="faire-schema"]')) {
+            if (mode.passer && !d.schemaForce) { taper($('[data-action="passer-schema"]'), 'passer'); return; }
+            taper($('[data-action="faire-schema"]'), 'faire le schéma');
+          }
+          await attendre(() => $('.res-schema .case'), 'schéma');
+          await indices();
+          const slots = Object.entries(p.etapes[0].schema.slots);
+          if (fauter) {
+            await placerCarte(slots[0][1], slots[1][0]);
+            await placerCarte(slots[1][1], slots[0][0]);
+            await placerCarte(slots[2][1], slots[2][0]);
+            await attendre(() => !D().verrou, 'reprise du schéma');
+          }
+          for (const [slot, k] of slots) {
+            const c = $(`.case[data-slot="${slot}"]`);
+            if (c.querySelector(`.res-carte[data-k="${k}"]`)) continue;
+            await placerCarte(k, slot, mode.glisse && k === '?');
+          }
+          return;
+        }
+        case 'operation': {
+          await indices();
+          const op = p.etapes[d.e].op;
+          if (fauter || (mode.passer && d.schemaPasse && !d.schemaForce)) {
+            taper($$('.btn-op').find(b => b.dataset.signe !== op.signe), 'mauvais signe');
+            await pause(5);
+            if (D().verrou) return; // schéma imposé (grade 3)
+          }
+          taper($(`.btn-op[data-signe="${op.signe}"]`), 'bon signe');
+          return;
+        }
+        case 'calcul': {
+          await indices();
+          if (mode.outil) { const b = $('.res-btn-outil'); if (b) b.click(); }
+          const op = p.etapes[d.e].op;
+          if (fauter) { await ecrireNombre(op.r > 1 ? op.r - 1 : op.r + 1); valider(); await pause(5); }
+          await ecrireNombre(op.r);
+          valider();
+          return;
+        }
+        case 'reponse':
+          await indices();
+          if (fauter) { taper($$('.phrase-reponse').find(b => b.textContent !== p.reponse.juste), 'mauvaise réponse'); await pause(5); }
+          taper($$('.phrase-reponse').find(b => b.textContent === p.reponse.juste), 'bonne réponse');
+          return;
+        default:
+          throw new Error('étape inconnue : ' + d.etape);
+      }
+    }
+
+    // Résout un problème ; renvoie le résultat de surFin (ou { arrete } si arrêt demandé)
+    async function resoudre(p, niveau, mode = {}) {
+      let res;
+      const etapesVues = [];
+      Resolution.lancer({ probleme: p, niveau, pnj: PNJ, surFin: r => { res = r; } });
+      const faites = new Set();
+      let dernier = -1;
+      for (let tour = 0; tour < 40; tour++) {
+        await attendre(() => res !== undefined || (D().actif && (D().etape === 'fin' || (!D().verrou && D().compteur !== dernier))), 'étape suivante');
+        if (res !== undefined) break;
+        const d = D();
+        if (mode.arret && d.etape === mode.arret.etape && d.e === mode.arret.e) return { arrete: true, d };
+        if (d.etape === 'fin') {
+          etapesVues.push('fin');
+          taper($('[data-action="continuer"]'), 'continuer');
+          await attendre(() => res !== undefined, 'surFin');
+          break;
+        }
+        etapesVues.push(d.etape + (d.deux && (d.etape === 'operation' || d.etape === 'calcul') ? d.e + 1 : ''));
+        dernier = d.compteur;
+        await agir(d, mode, faites);
+      }
+      return { res, etapesVues };
+    }
+
+    function attendu(p, niveau, nom) {
+      const deux = p.etapes.length > 1;
+      if (nom === 'bon') return { etoiles: 3, erreurs: { question: 0, infos: 0, plan: 0, schema: 0, operation: 0, calcul: 0, reponse: 0 }, aides: 0 };
+      if (nom === 'erreurs') return {
+        etoiles: 1,
+        erreurs: { question: niveau < 2 ? 1 : 0, infos: p.distracteur ? 1 : 0, plan: deux ? 1 : 0, schema: deux ? 0 : 1, operation: deux ? 2 : 1, calcul: deux ? 2 : 1, reponse: 1 },
+      };
+      if (nom === 'passer') return { etoiles: 2, erreurs: { question: 0, infos: 0, plan: 0, schema: 0, operation: 1, calcul: 0, reponse: 0 }, aides: 0 };
+      return {};
+    }
+
+    function verifier(run, att) {
+      const pbs = [];
+      const r = run.res;
+      if (!r) { pbs.push('pas de résultat'); return pbs; }
+      if (document.getElementById('resolution')) pbs.push('panneau encore présent après surFin');
+      for (const k of ['question', 'infos', 'plan', 'schema', 'operation', 'calcul', 'reponse']) if (typeof r.erreurs[k] !== 'number') pbs.push('erreurs.' + k + ' manquant');
+      if (typeof r.aides !== 'number' || typeof r.etoiles !== 'number') pbs.push('aides/etoiles manquants');
+      if (att.etoiles != null && r.etoiles !== att.etoiles) pbs.push(`étoiles ${r.etoiles} au lieu de ${att.etoiles}`);
+      if (att.erreurs) for (const [k, v] of Object.entries(att.erreurs)) if (r.erreurs[k] !== v) pbs.push(`erreurs.${k} = ${r.erreurs[k]} au lieu de ${v}`);
+      if (att.aides != null && r.aides !== att.aides) pbs.push(`aides = ${r.aides} au lieu de ${att.aides}`);
+      if (att.aidesMin != null && r.aides < att.aidesMin) pbs.push(`aides = ${r.aides} (au moins ${att.aidesMin} attendues)`);
+      return pbs;
+    }
+
+    async function unRun(m, notion, niveau, nom, extra = {}) {
+      const mode = { bon: {}, erreurs: { erreurs: true }, indices: { indices: true }, passer: { passer: true } }[nom];
+      const p = fabriquer(m, notion, niveau, nom === 'erreurs' ? true : extra.piege);
+      if (!p) return { id: m.id, niveau, mode: nom, ok: false, problemes: ['instanciation impossible'] };
+      let run, pbs;
+      try {
+        run = await resoudre(p, niveau, { ...mode, glisse: extra.glisse });
+        const att = nom === 'indices' ? { aidesMin: 3 } : attendu(p, niveau, nom);
+        pbs = verifier(run, att);
+        if (nom === 'passer' && run.etapesVues.filter(x => x === 'schema').length < 2) pbs.push('le schéma n’a pas été imposé');
+      } catch (e) {
+        pbs = ['exception : ' + e.message];
+        Resolution.fermer();
+      }
+      return {
+        id: m.id, niveau, mode: nom, ok: !pbs.length,
+        etoiles: run && run.res ? run.res.etoiles : null,
+        etapes: run ? run.etapesVues.join(' > ') : '',
+        problemes: pbs,
+      };
+    }
+
+    async function testsQuitter() {
+      const pbs = [];
+      const t = trouverModele('ex-GT');
+      const p = fabriquer(t.m, t.notion, 1);
+      // bouton quitter → confirmation → surFin(null)
+      let res;
+      Resolution.lancer({ probleme: p, niveau: 1, pnj: PNJ, surFin: r => { res = r; } });
+      taper($('[data-action="quitter"]'), 'quitter');
+      taper($('[data-action="quitter-non"]'), 'je continue');
+      if (!document.getElementById('resolution')) pbs.push('« Je continue » a fermé le panneau');
+      taper($('[data-action="quitter"]'), 'quitter');
+      taper($('[data-action="quitter-oui"]'), 'quitter oui');
+      if (res !== null) pbs.push('quitter : surFin(null) attendu, reçu ' + JSON.stringify(res));
+      if (document.getElementById('resolution')) pbs.push('quitter : panneau encore présent');
+      // fermer() sans résultat
+      let appele = false;
+      Resolution.lancer({ probleme: p, niveau: 1, pnj: PNJ, surFin: () => { appele = true; } });
+      Resolution.fermer();
+      await pause(3000);
+      if (appele) pbs.push('fermer() a appelé surFin');
+      if (document.getElementById('resolution')) pbs.push('fermer() : panneau encore présent');
+      return { id: 'quitter/fermer', ok: !pbs.length, problemes: pbs };
+    }
+
+    // ------------------------------------------------------------------
+    // Modes de la page
+    // ------------------------------------------------------------------
+    const tempo = parseFloat(prm('tempo') || ((prm('auto') || prm('tous') || prm('banque') || prm('etape')) ? '0.05' : '1'));
+    Resolution.regler({ tempo });
+
+    if (prm('tous') === '1') {
+      const runs = [];
+      const exemples = Problemes.NOTIONS.flatMap(n => Problemes.BANQUES[n].map(m => ({ m, notion: n })));
+      for (const { m, notion } of exemples) {
+        const niveaux = Problemes.niveauxDe(m);
+        for (const niveau of niveaux) {
+          runs.push(await unRun(m, notion, niveau, 'bon', { glisse: niveau === 2 }));
+          runs.push(await unRun(m, notion, niveau, 'erreurs'));
+          if (niveau === 3 && m.structure !== 'D2') runs.push(await unRun(m, notion, niveau, 'passer'));
+        }
+        runs.push(await unRun(m, notion, niveaux[0], 'indices'));
+      }
+      runs.push(await testsQuitter());
+      const echecs = runs.filter(r => !r.ok);
+      ecrire({ ok: !echecs.length && !erreursJS.length, total: runs.length, echecs, erreursJS, runs: runs.map(r => `${r.ok ? 'ok ' : 'KO '} ${r.id} n${r.niveau || '-'} ${r.mode || ''} ★${r.etoiles == null ? '-' : r.etoiles} | ${r.etapes || ''}`) });
+      return;
+    }
+
+    if (prm('banque')) {
+      const nom = prm('banque');
+      const notion = nom.split('-')[0];
+      await new Promise(ok => { const s = document.createElement('script'); s.src = `../js/problemes/banques/${nom}.js`; s.onload = ok; s.onerror = ok; document.body.append(s); });
+      const modeles = (Problemes.BANQUES[notion] || []).filter(m => m.id.startsWith(nom + '-'));
+      const N = parseInt(prm('n') || '20', 10);
+      const runs = [];
+      for (let i = 0; i < N && modeles.length; i++) {
+        const m = modeles[Math.floor(Math.random() * modeles.length)];
+        const niv = Problemes.niveauxDe(m);
+        const niveau = niv[i % niv.length];
+        runs.push(await unRun(m, notion, niveau, i % 4 === 3 ? 'erreurs' : 'bon'));
+      }
+      const echecs = runs.filter(r => !r.ok);
+      ecrire({ ok: !!modeles.length && !echecs.length && !erreursJS.length, modeles: modeles.length, total: runs.length, echecs, erreursJS });
+      return;
+    }
+
+    const id = prm('exemple') || 'ex-GT';
+    const t = trouverModele(id);
+    if (!t) { ecrire({ ok: false, erreur: 'exemple inconnu : ' + id }); return; }
+    const niveau = parseInt(prm('niveau') || String(Problemes.niveauxDe(t.m)[0]), 10);
+    const piege = prm('piege') == null ? null : prm('piege') === '1';
+
+    if (prm('auto') === '1') {
+      const nom = prm('erreurs') === '1' ? 'erreurs' : prm('indices') === '1' ? 'indices' : prm('passer') === '1' ? 'passer' : 'bon';
+      const r = await unRun(t.m, t.notion, niveau, nom, { piege, glisse: prm('glisse') === '1' });
+      ecrire({ ok: r.ok && !erreursJS.length, ...r, erreursJS });
+      return;
+    }
+
+    const p = fabriquer(t.m, t.notion, niveau, piege);
+    if (prm('etape')) {
+      const arret = { etape: prm('etape'), e: parseInt(prm('e') || '0', 10) };
+      const mode = { arret, passer: prm('passerChoix') === '1' };
+      const r = await resoudre(p, niveau, mode);
+      Resolution.regler({ tempo: 1 });
+      if (r.arrete) {
+        await pause(50);
+        if (prm('partiel') === '1') {
+          const slots = Object.entries(p.etapes[0].schema.slots);
+          if ($('[data-action="faire-schema"]')) taper($('[data-action="faire-schema"]'), 'faire');
+          await placerCarte(slots[0][1], slots[0][0]);
+          toucher($(`.res-plateau .res-carte[data-k="${slots[1][1]}"]`), 'carte');
+        }
+        if (prm('outil') === '1') { const b = $('.res-btn-outil'); if (b) b.click(); }
+        if (prm('indice') === '1') { const b = $('[data-action="indice"]'); if (b) b.click(); }
+        if (prm('faux') === '1') {
+          const op = p.etapes[arret.e].op;
+          await ecrireNombre(op.r + (op.formats.r === 'nombre' ? 11 : 10));
+          valider();
+        }
+      }
+      ecrire({ ok: !!r.arrete && !erreursJS.length, etape: D().etape, debug: { ...D(), probleme: undefined }, texte: p.oral, erreursJS });
+      return;
+    }
+
+    // Mode manuel : on joue soi-même
+    const jouer = () => Resolution.lancer({
+      probleme: fabriquer(t.m, t.notion, niveau, piege), niveau, pnj: PNJ,
+      surFin: res => {
+        ecrire({ res });
+        const fin = UI.h('div', { class: 'fin-test' }, UI.h('div', null,
+          UI.h('p', null, res ? `Résultat : ${res.etoiles} étoile(s), ${res.aides} aide(s).` : 'Problème quitté.'),
+          UI.h('button', { onclick: () => { fin.remove(); jouer(); } }, 'Un autre problème')));
+        document.body.append(fin);
+      },
+    });
+    jouer();
+  })().catch(e => {
+    document.getElementById('resultat').textContent = JSON.stringify({ ok: false, exception: e.message, pile: String(e.stack).split('\n').slice(0, 4) });
+  });
+  </script>
+</body>
+</html>

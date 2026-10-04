@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Moteur du monde</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #23263a; }
+    #carte { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+    #resultat { display: none; }
+    body.rapport #resultat { display: block; position: fixed; left: 8px; bottom: 8px; max-height: 45%; overflow: auto; margin: 0;
+      padding: 8px 10px; background: rgba(251, 247, 239, 0.92); color: #2d2a32; font: 12px/1.35 monospace; border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <!--
+    Paramètres : ?monde=<id> (plusmoins, paquets, marche, tictac, defi ; sinon carte d'essai intégrée), &art=factice,
+    &auto=1 (scénario automatique + rapport JSON), &demo=1 (scène pour capture), &rapport=1 (affiche le rapport),
+    &x=..&y=.. (position de départ d'Alvin), &ouvert=2,3 (zones déjà ouvertes).
+  -->
+  <canvas id="carte"></canvas>
+  <pre id="resultat">en cours…</pre>
+  <script src="../js/monde/mondes.js"></script>
+  <script>
+  'use strict';
+  const params = new URLSearchParams(location.search);
+  const sortie = document.getElementById('resultat');
+  if (params.get('rapport')) document.body.classList.add('rapport');
+  const erreursPage = [];
+  window.addEventListener('error', e => erreursPage.push(`${e.filename ? e.filename.split('/').pop() : ''}:${e.lineno} ${e.message}`));
+
+  function charger(src) {
+    return new Promise(res => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = () => res(true);
+      s.onerror = () => res(false);
+      document.body.append(s);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Carte d'essai intégrée (40×30, conforme au §9) : 4 zones, 2 rivières, une falaise
+  // ---------------------------------------------------------------------------
+  function carteEssai() {
+    const W = 40, H = 30;
+    let s = 12345;
+    const rnd = () => { s = (Math.imul(s, 1103515245) + 12345) >>> 0; return s / 4294967296; };
+    const g = Array.from({ length: H }, (_, y) => Array.from({ length: W }, (_, x) => ((x * 7 + y * 13) % 9 === 0 ? ',' : '.')));
+    const met = (x, y, c) => { if (x >= 0 && y >= 0 && x < W && y < H) g[y][x] = c; };
+    const rect = (x0, y0, x1, y1, c) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) met(x, y, c); };
+    const trace = pts => {
+      for (let i = 1; i < pts.length; i++) {
+        let [x, y] = pts[i - 1];
+        const [x1, y1] = pts[i];
+        while (x !== x1 || y !== y1) { met(x, y, ':'); x += Math.sign(x1 - x); y += Math.sign(y1 - y); }
+        met(x1, y1, ':');
+      }
+    };
+    // Eau et falaises
+    rect(19, 0, 20, 29, '~');                 // rivière nord-sud
+    rect(0, 14, 18, 15, '~');                 // rivière ouest
+    rect(21, 14, 39, 15, '#');                // falaise est
+    rect(4, 8, 6, 10, '~'); rect(26, 22, 28, 24, '~'); rect(31, 2, 33, 3, '~');   // étangs
+    rect(12, 18, 13, 20, '#'); rect(35, 6, 36, 8, '#');
+    // Chemins
+    trace([[3, 25], [10, 25], [10, 17], [9, 17], [9, 16]]);
+    trace([[10, 21], [16, 21], [16, 26]]);
+    trace([[9, 13], [9, 6], [18, 6]]);
+    trace([[9, 9], [14, 9], [14, 3]]);
+    trace([[21, 6], [30, 6], [30, 13]]);
+    trace([[30, 9], [37, 9]]);
+    trace([[30, 15], [30, 22], [36, 22], [36, 27]]);
+    trace([[30, 19], [24, 19], [24, 26]]);
+    // Portes
+    met(9, 14, 'B'); met(9, 15, 'B'); met(19, 6, 'B'); met(20, 6, 'B'); met(30, 14, 'P');
+    // Entités (cases réservées)
+    const fusee = { x: 3, y: 24 }, depart = { x: 4, y: 24 };
+    const pnj = [
+      ['tibo', 'Tibo', 'm', 1, 7, 20, 'bulle', '#6cc4a1', 'chapeau'], ['nala', 'Nala', 'f', 1, 14, 23, 'plume', '#ef9f7a', 'noeud'],
+      ['pouki', 'Pouki', 'm', 1, 5, 18, 'robot', '#7ab0d9', null],
+      ['mira', 'Mira', 'f', 2, 6, 4, 'champi', '#d9825b', 'tablier'], ['zoko', 'Zoko', 'm', 2, 13, 10, 'antenne', '#e3b04b', 'lunettes'],
+      ['lila', 'Lila', 'f', 2, 16, 3, 'etoile', '#e59aa6', 'echarpe'],
+      ['bako', 'Bako', 'm', 3, 25, 4, 'plume', '#79b8d9', 'casquette'], ['fifi', 'Fifi', 'f', 3, 34, 10, 'bulle', '#a596d9', null],
+      ['roro', 'Roro', 'm', 3, 27, 11, 'robot', '#b07aa1', 'tablier'],
+      ['yaya', 'Yaya', 'f', 4, 26, 18, 'antenne', '#3fa39a', 'lunettes'], ['pomo', 'Pomo', 'm', 4, 35, 25, 'champi', '#7fae5e', 'echarpe'],
+      ['reina', 'Reina', 'f', 4, 31, 23, 'etoile', '#e76f51', 'couronne'],
+    ].map(([id, nom, gg, zone, x, y, espece, couleur, accessoire]) => ({
+      id, nom, g: gg, role: 'habitant', zone, x, y, themes: ['jeux'], apparence: { espece, couleur, accessoire },
+      bonjour: `Bonjour, je suis ${nom} !`, merci: 'Merci beaucoup !', chef: id === 'reina',
+    }));
+    const coffres = [[2, 27, 1], [2, 2, 2], [37, 2, 3], [37, 28, 4]].map(([x, y, zone], i) => ({ id: 'c' + (i + 1), x, y, zone, souvenir: { id: 'essai-' + i, nom: 'Souvenir ' + (i + 1) } }));
+    const panneaux = [[5, 23, 1], [8, 12, 2], [22, 7, 3], [31, 17, 4]].map(([x, y, zone], i) => ({ id: 'p' + (i + 1), x, y, zone, texte: 'Panneau ' + (i + 1) }));
+    const reserves = [fusee, depart, ...pnj, ...coffres, ...panneaux];
+    const libre = (x, y) => !reserves.some(e => Math.abs(e.x - x) + Math.abs(e.y - y) <= 1);
+    for (const e of reserves) met(e.x, e.y, g[e.y][e.x] === ':' ? ':' : '.');
+    // Décor semé (sur le sol uniquement, loin des entités)
+    const decor = ['T', 'T', 'T', 'R', 'f', 'f', 'C', 'M', 'H', 'X'];
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      if ((g[y][x] === '.' || g[y][x] === ',') && libre(x, y) && rnd() < 0.13) g[y][x] = decor[Math.floor(rnd() * decor.length)];
+    }
+    // Bords non marchables
+    const bord = i => '#TR#T#RT'[i % 8];
+    for (let x = 0; x < W; x++) { if (g[0][x] !== '~') g[0][x] = bord(x); if (g[H - 1][x] !== '~') g[H - 1][x] = bord(x + 3); }
+    for (let y = 0; y < H; y++) { if (g[y][0] !== '~') g[y][0] = bord(y + 1); if (g[y][W - 1] !== '~') g[y][W - 1] = bord(y + 5); }
+    return {
+      id: 'essai', ordre: 99, notion: 'plusmoins', nom: "Planète d'essai", description: 'Carte intégrée au test du moteur',
+      arrivee: 'Une planète pour essayer le moteur.',
+      carte: g.map(l => l.join('')),
+      depart, fusee,
+      zones: [
+        { id: 1, nom: 'La Clairière', requis: 0 },
+        { id: 2, nom: 'Le Village', requis: 8, portes: [[9, 14], [9, 15]], message: 'Le pont est cassé.' },
+        { id: 3, nom: 'La Colline', requis: 20, portes: [[19, 6], [20, 6]], message: 'Le grand pont est cassé.' },
+        { id: 4, nom: 'Le Plateau', requis: 32, portes: [[30, 14]], message: 'La barrière est fermée.' },
+      ],
+      pnj, coffres, panneaux,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Suivi des écouteurs (pour vérifier qu'arreter() ne laisse aucune fuite)
+  // ---------------------------------------------------------------------------
+  let suivreEcouteurs = false;
+  const ajoutOrig = EventTarget.prototype.addEventListener, retraitOrig = EventTarget.prototype.removeEventListener;
+  EventTarget.prototype.addEventListener = function (type, fn, o) {
+    if (suivreEcouteurs) (this.__ec || (this.__ec = [])).push([type, fn]);
+    return ajoutOrig.call(this, type, fn, o);
+  };
+  EventTarget.prototype.removeEventListener = function (type, fn, o) {
+    if (this.__ec) this.__ec = this.__ec.filter(([t, f]) => !(t === type && f === fn));
+    return retraitOrig.call(this, type, fn, o);
+  };
+  const ROs = [];
+  if (window.ResizeObserver) {
+    const RO = window.ResizeObserver;
+    window.ResizeObserver = class extends RO {
+      constructor(cb) { super(cb); this.connecte = true; ROs.push(this); }
+      disconnect() { this.connecte = false; super.disconnect(); }
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Démarrage
+  // ---------------------------------------------------------------------------
+  (async () => {
+    const id = params.get('monde') || 'plusmoins';
+    let monde = null, source = 'essai';
+    if (id !== 'essai' && await charger(`../js/monde/mondes/${id}.js`)) { monde = Mondes.get(id); source = `mondes/${id}.js`; }
+    if (!monde) monde = carteEssai();
+    let art = 'js/art/art.js';
+    if (params.get('art') === 'factice' || !(await charger('../js/art/art.js')) || typeof Art === 'undefined') {
+      if (typeof Art === 'undefined') await charger('art-factice.js');
+      art = 'tests/art-factice.js';
+    }
+    await charger('../js/monde/moteur.js');
+
+    const canvas = document.getElementById('carte');
+    const journal = { touche: [], arrivee: [], deplacement: [] };
+    const ouvertes = (params.get('ouvert') || '').split(',').filter(Boolean).map(Number);
+    const pos = params.get('x') ? { x: +params.get('x'), y: +params.get('y') } : null;
+    suivreEcouteurs = true;
+    const jeu = Moteur.creer(canvas, monde, {
+      etat: { portesOuvertes: [1, ...ouvertes], coffresOuverts: [], marques: marquesInitiales(monde, [1, ...ouvertes]), pos },
+      surTouche: e => journal.touche.push(e ? e.id : null),
+      surArrivee: e => journal.arrivee.push(`${e.type}:${e.id}`),
+      surDeplacement: (x, y) => journal.deplacement.push([x, y]),
+    });
+    jeu.demarrer();
+    window.jeu = jeu;
+
+    if (params.get('auto')) {
+      const rapport = scenario(jeu, monde, journal);
+      rapport.monde = monde.id; rapport.source = source; rapport.art = art;
+      rapport.erreursPage = erreursPage;
+      rapport.ok = rapport.ok && !erreursPage.length;
+      sortie.textContent = JSON.stringify(rapport, null, 1);
+    } else {
+      if (params.get('demo')) demo(jeu, monde);
+      else jeu.simuler(0.1);
+      sortie.textContent = JSON.stringify({ ok: !jeu.debug().erreur, monde: monde.id, source, art, debug: jeu.debug(), erreursPage });
+    }
+  })();
+
+  function marquesInitiales(monde, zones) {
+    const m = {};
+    for (const p of monde.pnj || []) m[p.id] = zones.includes(p.zone) ? '!' : null;
+    return m;
+  }
+
+  // Scène pour les captures : Alvin en route vers un habitant, un texte qui monte, une zone qui vient de s'ouvrir
+  function demo(jeu, monde) {
+    if (params.get('demo') === 'porte') {                      // un passage en train de s'ouvrir (avec &x=&y= près de la porte)
+      const z = (monde.zones || []).find(q => q.portes && q.portes.some(([x, y]) => 'BP'.includes(jeu.caseEn(x, y))));
+      jeu.simuler(0.5);
+      if (z) jeu.ouvrirZone(z.id, true);
+      jeu.simuler(+(params.get('t') || 0.3));
+      return;
+    }
+    const p = (monde.pnj || []).find(q => q.zone === 1);
+    if (p) {
+      jeu.majEntite(p.id, { marque: 'ok' });
+      jeu.texteFlottant(p.x, p.y - 1, '+3 ★', '#c7962a');
+      const voisin = (monde.pnj || []).find(q => q.zone === 1 && q !== p) || p;
+      jeu.allerVers(voisin.x, voisin.y);
+    }
+    jeu.simuler(0.55);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Scénario automatique
+  // ---------------------------------------------------------------------------
+  function scenario(jeu, monde, journal) {
+    const tests = [];
+    const W = monde.carte[0].length, H = monde.carte.length;
+    const verifier = (nom, ok, detail) => { tests.push({ nom, ok: !!ok, detail }); return ok; };
+    const pos = () => ({ x: jeu.joueur.x, y: jeu.joueur.y });
+    const entier = p => Number.isInteger(p.x) && Number.isInteger(p.y);
+    const attendre = (max = 60) => {                           // simule jusqu'à l'arrêt d'Alvin
+      let t = 0;
+      while (jeu.debug().enMarche && t < max) { jeu.simuler(0.05); t += 0.05; }
+      return t;
+    };
+    const accessibles = () => {
+      const d = jeu.distances(), l = [];
+      for (let i = 0; i < d.length; i++) if (d[i] >= 0) l.push({ x: i % W, y: (i / W) | 0, d: d[i] });
+      return l;
+    };
+    const cheminValide = (dep, ch) => {
+      let p = dep;
+      for (const c of ch) {
+        if (Math.abs(c.x - p.x) + Math.abs(c.y - p.y) !== 1) return `saut ${JSON.stringify(p)}→${JSON.stringify(c)}`;
+        if (!jeu.passable(c.x, c.y)) return `case bloquée ${JSON.stringify(c)}`;
+        p = c;
+      }
+      return null;
+    };
+    const tap = (px, py, bouger = 0) => {
+      const r = { clientX: px, clientY: py, pointerId: 7, isPrimary: true, button: 0, bubbles: true, cancelable: true, pointerType: 'touch' };
+      const c = document.getElementById('carte');
+      c.dispatchEvent(new PointerEvent('pointerdown', r));
+      if (bouger) c.dispatchEvent(new PointerEvent('pointermove', { ...r, clientX: px + bouger, clientY: py + bouger / 2 }));
+      c.dispatchEvent(new PointerEvent('pointerup', { ...r, clientX: px + bouger, clientY: py + bouger / 2 }));
+    };
+    const adjacent = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1;
+    const zoneFermee = (monde.zones || []).find(z => z.portes && z.portes.some(([x, y]) => 'BP'.includes(jeu.caseEn(x, y))));
+    const tempsDebut = performance.now();
+
+    // 1. Départ
+    const d0 = pos();
+    verifier('depart', entier(d0) && jeu.passable(d0.x, d0.y) && Math.abs(d0.x - monde.depart.x) + Math.abs(d0.y - monde.depart.y) <= 2,
+      { joueur: d0, depart: monde.depart, zoom: +jeu.camera.zoom.toFixed(3), casesVisibles: jeu.debug().casesVisibles });
+
+    // 2. Chemins vers plusieurs cibles (plus court chemin, cases marchables, arrivée exacte, ~4 cases/s)
+    {
+      const acc = accessibles().filter(c => c.d > 0).sort((a, b) => a.d - b.d);
+      const cibles = [0.2, 0.45, 0.7, 0.9, 1].map(q => acc[Math.min(acc.length - 1, Math.floor(q * (acc.length - 1)))]);
+      const details = [];
+      let ok = cibles.length === 5;
+      for (const c of cibles) {
+        const dep = pos();
+        const dist = jeu.distances()[c.y * W + c.x];
+        const r = jeu.allerVers(c.x, c.y);
+        const ch = jeu.debug().chemin;
+        const err = cheminValide(dep, ch);
+        const t = attendre();
+        const fin = pos();
+        const vitesse = ch.length / t;
+        // ~4 cases/s, avec un départ et une arrivée en douceur (≈ 0,3 s de plus au total)
+        const bon = r && !err && fin.x === c.x && fin.y === c.y && ch.length >= dist && ch.length <= dist + 2 && t >= ch.length / 4.1 && t <= ch.length / 4 + 0.4;
+        details.push({ cible: [c.x, c.y], pas: ch.length, plusCourt: dist, duree: +t.toFixed(2), vitesse: +vitesse.toFixed(2), arrivee: [fin.x, fin.y], erreur: err });
+        ok = ok && bon;
+      }
+      verifier('chemins_plusieurs_cibles', ok, details);
+    }
+
+    // 3. Contournement d'obstacles : le chemin est plus long que la distance à vol d'oiseau
+    {
+      const dep = pos();
+      const detour = c => c.d - Math.abs(c.x - dep.x) - Math.abs(c.y - dep.y);
+      const c = accessibles().filter(q => detour(q) >= 2).sort((a, b) => detour(b) - detour(a) || a.d - b.d)[0];
+      let detail = 'aucune cible trouvée', ok = false;
+      if (c) {
+        jeu.allerVers(c.x, c.y);
+        const ch = jeu.debug().chemin;
+        const err = cheminValide(dep, ch);
+        attendre();
+        ok = !err && ch.length >= c.d && ch.length <= c.d + 2 && pos().x === c.x && pos().y === c.y;
+        detail = { de: [dep.x, dep.y], vers: [c.x, c.y], volOiseau: Math.abs(c.x - dep.x) + Math.abs(c.y - dep.y), pas: ch.length, erreur: err };
+      }
+      verifier('contournement_obstacles', ok, detail);
+    }
+
+    // 4. Toucher une case bloquée (arbre, rocher, eau) : Alvin va à la case marchable la plus proche
+    {
+      const accSet = new Set(accessibles().map(c => c.y * W + c.x));
+      let bloc = null;
+      for (let y = 1; y < H - 1 && !bloc; y++) for (let x = 1; x < W - 1 && !bloc; x++) {
+        const c = jeu.caseEn(x, y);
+        const ent = jeu.entites.some(e => e.x === x && e.y === y);
+        if (!jeu.passable(x, y) && !ent && !'BP'.includes(c) && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => accSet.has((y + dy) * W + x + dx))
+          && Math.abs(x - pos().x) + Math.abs(y - pos().y) > 3) bloc = { x, y, c };
+      }
+      jeu.allerVers(bloc.x, bloc.y);
+      attendre();
+      const p = pos();
+      verifier('case_bloquee_plus_proche', adjacent(p, bloc) && jeu.passable(p.x, p.y), { case: bloc, arrivee: p });
+    }
+
+    // 5. Zone fermée : Alvin refuse d'y entrer et ne parle pas à ses habitants
+    let pnjFerme = null;
+    if (zoneFermee) {
+      pnjFerme = (monde.pnj || []).find(p => p.zone === zoneFermee.id);
+      const accAvant = new Set(accessibles().map(c => c.y * W + c.x));
+      const nArr = journal.arrivee.length;
+      jeu.allerVers(pnjFerme.x, pnjFerme.y);
+      attendre();
+      const p1 = pos();
+      // et toucher une case marchable de l'autre côté
+      const autre = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ x: pnjFerme.x + dx, y: pnjFerme.y + dy })).find(c => jeu.passable(c.x, c.y));
+      jeu.allerVers(autre.x, autre.y);
+      attendre();
+      const p2 = pos();
+      verifier('refus_zone_fermee',
+        journal.arrivee.length === nArr && accAvant.has(p1.y * W + p1.x) && accAvant.has(p2.y * W + p2.x) && !adjacent(p1, pnjFerme) && !accAvant.has(autre.y * W + autre.x),
+        { zone: zoneFermee.id, habitant: pnjFerme.id, arrivee1: p1, cibleAutreCote: autre, arrivee2: p2 });
+
+      // 6. Toucher la porte fermée : Alvin va devant et la signale (surArrivee type 'porte')
+      const [px, py] = zoneFermee.portes[0];
+      jeu.allerVers(px, py);
+      attendre();
+      verifier('porte_fermee_signalee', journal.arrivee[journal.arrivee.length - 1] === `porte:zone-${zoneFermee.id}`,
+        { porte: [px, py], arrivee: pos(), dernier: journal.arrivee[journal.arrivee.length - 1] || null });
+
+      // 7. Ouverture animée de la zone, puis passage jusqu'à l'habitant
+      const nbAcc = accSet0();
+      const n = jeu.ouvrirZone(zoneFermee.id, true);
+      const dbg = jeu.debug();
+      const portesOk = zoneFermee.portes.every(([x, y]) => Mondes.MARCHABLE.has(jeu.caseEn(x, y)));
+      const anim = dbg.ouvertures === zoneFermee.portes.length && dbg.particules > 0 && dbg.focus;
+      jeu.simuler(2.6);
+      const finAnim = jeu.debug().ouvertures === 0 && jeu.debug().particules === 0 && !jeu.debug().focus;
+      const nbApres = accSet0();
+      const nDep = journal.deplacement.length;
+      jeu.allerVers(pnjFerme.x, pnjFerme.y);
+      attendre();
+      const passe = journal.deplacement.slice(nDep).some(([x, y]) => zoneFermee.portes.some(([a, b]) => a === x && b === y));
+      verifier('ouverture_zone_puis_passage',
+        n === zoneFermee.portes.length && portesOk && anim && finAnim && nbApres > nbAcc && passe && adjacent(pos(), pnjFerme)
+          && journal.arrivee[journal.arrivee.length - 1] === `pnj:${pnjFerme.id}`,
+        { portesOuvertes: n, animation: anim, finAnimation: finAnim, accessiblesAvant: nbAcc, accessiblesApres: nbApres, parLaPorte: passe, arrivee: pos(), dernier: journal.arrivee[journal.arrivee.length - 1] });
+    } else {
+      verifier('refus_zone_fermee', true, 'aucune zone fermée sur cette carte');
+    }
+    function accSet0() { return accessibles().length; }
+
+    // 8. Interaction tactile avec un habitant (vrais événements pointer) : toucher sa tête de loin, puis toucher immédiat à côté
+    {
+      const dep = pos();
+      const dist = jeu.distances();
+      const cand = jeu.entites.filter(e => e.type === 'pnj' && e !== jeu.entites.find(q => q.id === (pnjFerme && pnjFerme.id)))
+        .map(e => ({ e, d: Math.min(...[[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => { const v = dist[(e.y + dy) * W + e.x + dx]; return v >= 0 ? v : 1e9; })) }))
+        .filter(o => o.d < 1e9 && o.d >= 3).sort((a, b) => a.d - b.d);
+      const pnj = cand.length ? cand[0].e : null;
+      let detail = 'aucun habitant accessible', ok = false;
+      if (pnj) {
+        // s'approcher pour qu'il soit à l'écran
+        const proche = accessibles().filter(c => c.d > 0 && Math.abs(c.x - pnj.x) + Math.abs(c.y - pnj.y) >= 3).sort((a, b) =>
+          (Math.abs(a.x - pnj.x) + Math.abs(a.y - pnj.y)) - (Math.abs(b.x - pnj.x) + Math.abs(b.y - pnj.y)))[0];
+        if (proche) { jeu.allerVers(proche.x, proche.y); attendre(); }
+        jeu.simuler(2);                                         // la caméra se pose
+        const nT = journal.touche.length, nA = journal.arrivee.length;
+        const [sx, sy] = jeu.versEcran(pnj.x, pnj.y);
+        const tete = sy - jeu.camera.zoom * 64 * 0.8;            // on touche sa tête (case au-dessus)
+        tap(sx, tete);
+        const toucheOk = journal.touche[nT] === pnj.id && jeu.debug().interaction === pnj.id;
+        attendre();
+        const arriveOk = journal.arrivee[nA] === `pnj:${pnj.id}` && adjacent(pos(), pnj);
+        const directionOk = (() => { const dx = pnj.x - pos().x, dy = pnj.y - pos().y; return jeu.joueur.direction === (dx > 0 ? 'droite' : dx < 0 ? 'gauche' : dy > 0 ? 'bas' : 'haut'); })();
+        const [sx2, sy2] = jeu.versEcran(pnj.x, pnj.y);
+        tap(sx2, sy2);                                           // déjà à côté : surArrivee tout de suite
+        const immediatOk = journal.arrivee.length === nA + 2 && journal.arrivee[nA + 1] === `pnj:${pnj.id}` && !jeu.debug().enMarche;
+        ok = toucheOk && arriveOk && directionOk && immediatOk;
+        detail = { habitant: pnj.id, ecran: [Math.round(sx), Math.round(tete)], touche: toucheOk, arrivee: arriveOk, direction: jeu.joueur.direction, regarde: directionOk, immediat: immediatOk };
+      }
+      verifier('interaction_habitant_tactile', ok, detail);
+    }
+
+    // 9. Un glisser n'est pas un tap
+    {
+      const nT = journal.touche.length;
+      const a = accessibles().find(c => c.d === 2);
+      const [sx, sy] = jeu.versEcran(a.x, a.y);
+      tap(sx, sy, 40);
+      verifier('glisser_ignore', journal.touche.length === nT && !jeu.debug().enMarche, { touches: journal.touche.length - nT });
+    }
+
+    // 10. Blocage pendant un dialogue
+    {
+      jeu.bloquer(true);
+      const nT = journal.touche.length;
+      const a = accessibles().find(c => c.d === 2) || { x: pos().x, y: pos().y };
+      const [sx, sy] = jeu.versEcran(a.x, a.y);
+      tap(sx, sy);
+      const r = jeu.allerVers(a.x, a.y);
+      const ok1 = journal.touche.length === nT && !jeu.debug().enMarche && r === null;
+      jeu.bloquer(false);
+      // bloqué en pleine marche : Alvin finit son pas et s'arrête, sans interaction
+      const loin = accessibles().sort((p, q) => q.d - p.d)[0];
+      jeu.allerVers(loin.x, loin.y);
+      jeu.simuler(0.4);
+      jeu.bloquer(true);
+      const dbg = jeu.debug();
+      const t = attendre(2);
+      const ok2 = dbg.chemin.length <= 1 && dbg.interaction === null && entier(pos()) && !jeu.debug().enMarche && t <= 0.5;
+      jeu.bloquer(false);
+      verifier('blocage_dialogue', ok1 && ok2, { tapIgnore: ok1, arretPropre: ok2, arret: pos() });
+    }
+
+    // 11. Mise à jour des entités et texte flottant
+    {
+      const p = jeu.entites.find(e => e.type === 'pnj'), c = jeu.entites.find(e => e.type === 'coffre');
+      const ok1 = jeu.majEntite(p.id, { marque: 'ok' }) && p.marque === 'ok' && (!c || (jeu.majEntite(c.id, { ouvert: true }) && c.ouvert === true));
+      jeu.texteFlottant(p.x, p.y - 1, '+3 ★', '#c7962a');
+      const n1 = jeu.debug().textes;
+      jeu.simuler(2.2);
+      const n2 = jeu.debug().textes;
+      verifier('entites_et_textes', ok1 && n1 === 1 && n2 === 0 && !jeu.majEntite('inconnu', {}), { marque: p.marque, coffreOuvert: c && c.ouvert, textes: [n1, n2] });
+    }
+
+    // 12. surDeplacement : des cases entières et marchables
+    verifier('sur_deplacement', journal.deplacement.length > 10 && journal.deplacement.every(([x, y]) => Number.isInteger(x) && Number.isInteger(y) && Mondes.MARCHABLE.has(jeu.caseEn(x, y))),
+      { appels: journal.deplacement.length });
+
+    // 13. Caméra bornée à la carte (aller dans un coin)
+    {
+      const coin = accessibles().sort((a, b) => (a.x + a.y) - (b.x + b.y))[0];
+      jeu.allerVers(coin.x, coin.y);
+      attendre();
+      jeu.simuler(3);
+      const v = jeu.debug().casesVisibles, c = jeu.camera;
+      const ok = c.x - v.l / 2 >= -1e-6 && c.y - v.h / 2 >= -1e-6 && c.x + v.l / 2 <= W + 1e-6 && c.y + v.h / 2 <= H + 1e-6;
+      verifier('camera_bornee', ok, { coin: [coin.x, coin.y], camera: [+c.x.toFixed(2), +c.y.toFixed(2)], visibles: [+v.l.toFixed(2), +v.h.toFixed(2)] });
+    }
+
+    // 14. Redimensionnement / orientation
+    {
+      const canvas = document.getElementById('carte');
+      const essai = (l, h) => { canvas.style.width = l + 'px'; canvas.style.height = h + 'px'; jeu.redimensionner(); jeu.simuler(0.05); const d = jeu.debug(); return { l: +d.casesVisibles.l.toFixed(2), h: +d.casesVisibles.h.toFixed(2), px: [canvas.width, canvas.height], blocs: d.blocs }; };
+      const portrait = essai(800, 1280), paysage = essai(1280, 800), telephone = essai(740, 360);
+      canvas.style.width = ''; canvas.style.height = '';
+      jeu.redimensionner();
+      const ok = portrait.l >= 9 && portrait.l <= 10 && paysage.l >= 13 && paysage.l <= 15 && telephone.h >= 7 && !jeu.debug().erreur;
+      verifier('redimensionnement', ok, { portrait, paysage, telephone });
+    }
+
+    // 15. Pause quand l'onglet est caché
+    {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      const cache = jeu.debug();
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+      document.dispatchEvent(new Event('visibilitychange'));
+      const visible = jeu.debug();
+      delete document.hidden;
+      verifier('pause_onglet_cache', cache.enPause && !cache.boucle && !visible.enPause && visible.boucle, { cache: { pause: cache.enPause, boucle: cache.boucle }, visible: { pause: visible.enPause, boucle: visible.boucle } });
+    }
+
+    // 16. Temps moyen d'une image (rendu complet), en densité 1 puis 2
+    // Chrome enregistre les ordres de dessin et ne peint qu'ensuite : on force la peinture (lecture d'un pixel) à chaque image.
+    const ctx2 = document.getElementById('carte').getContext('2d');
+    const mesure = (n = 120) => {
+      for (let i = 0; i < 10; i++) { jeu.simuler(1 / 60); ctx2.getImageData(0, 0, 1, 1); }   // préchauffage (blocs en cache)
+      const t0 = performance.now();
+      for (let i = 0; i < n; i++) { jeu.simuler(1 / 60); ctx2.getImageData(0, 0, 1, 1); }
+      return +((performance.now() - t0) / n).toFixed(3);
+    };
+    const loin = accessibles().sort((p, q) => q.d - p.d)[0];
+    jeu.allerVers(loin.x, loin.y);
+    const ms1 = mesure();
+    const dprOrig = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio');
+    Object.defineProperty(window, 'devicePixelRatio', { configurable: true, get: () => 2 });
+    jeu.redimensionner();
+    const ms2 = mesure();
+    const dbg2 = jeu.debug();
+    if (dprOrig) Object.defineProperty(window, 'devicePixelRatio', dprOrig); else delete window.devicePixelRatio;
+    jeu.redimensionner();
+    attendre();
+    verifier('temps_image', ms1 < 16 && ms2 < 33, { msDensite1: ms1, msDensite2: ms2, ecran2: [dbg2.largeur * 2, dbg2.hauteur * 2], blocsEnCache: dbg2.blocs, maxBlocs: dbg2.maxBlocs, blocsRendus: dbg2.blocsRendus });
+
+    // 17. Aucune erreur de rendu, puis arrêt sans fuite
+    const erreur = jeu.debug().erreur;
+    verifier('aucune_erreur_rendu', !erreur, erreur);
+    const capturesAvant = canvasEcouteurs();
+    jeu.arreter();
+    const dbg = jeu.debug();
+    const restants = canvasEcouteurs();
+    verifier('arret_sans_fuite', dbg.ecouteurs === 0 && !dbg.boucle && !dbg.actif && restants === 0 && ROs.every(r => !r.connecte) && dbg.blocs === 0,
+      { ecouteursAvant: capturesAvant, ecouteursApres: restants, observateursConnectes: ROs.filter(r => r.connecte).length, blocs: dbg.blocs });
+    function canvasEcouteurs() {
+      return [document.getElementById('carte'), window, document].reduce((s, c) => s + ((c.__ec || []).length), 0);
+    }
+
+    return { ok: tests.every(t => t.ok), dureeTestMs: Math.round(performance.now() - tempsDebut), echecs: tests.filter(t => !t.ok).map(t => t.nom), tests };
+  }
+  </script>
+</body>
+</html>

@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mission Galaxie — style, icônes et voix</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&family=Fredoka:wght@500;600;700&display=swap">
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/jeu.css">
+  <style>
+    /* Mise en page de la page de test uniquement */
+    body { background: var(--papier-2); color: var(--encre); -webkit-user-select: text; user-select: text; }
+    .page { max-width: 1240px; margin: 0 auto; padding: 24px 20px 48px; }
+    .page > header { margin-bottom: 18px; }
+    .page > header h1 { font-size: 2.2rem; margin: 0 0 4px; }
+    .page > header p { margin: 0; color: var(--encre-douce); }
+    .grille { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(540px, 100%), 1fr)); align-items: start; }
+    .section { padding: 18px 20px 20px; }
+    .section h2 { font-size: 1.35rem; margin-bottom: 12px; }
+    .section h3 { font-size: 1rem; color: var(--encre-douce); font-family: var(--police); font-weight: 700; margin: 14px 0 8px; }
+    .large { grid-column: 1 / -1; }
+    .rangee { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .nuancier { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; }
+    .teinte { border-radius: var(--rayon-petit); overflow: hidden; background: var(--blanc); font-size: .78rem; line-height: 1.25; }
+    .teinte span { display: block; height: 44px; }
+    .teinte b, .teinte i { display: block; padding: 0 8px; font-style: normal; }
+    .teinte b { padding-top: 5px; }
+    .teinte i { color: var(--encre-douce); padding-bottom: 6px; }
+    .enonce { font-size: 22px; line-height: 1.5; margin: 0; }
+    .donnee { background: var(--sarcelle-claire); color: var(--sarcelle-fonce); font-weight: 700; padding: 1px 8px; border-radius: 8px; }
+    .cherche { background: var(--lavande-claire); color: var(--lavande-fonce); font-weight: 700; padding: 1px 8px; border-radius: 8px; }
+    .demo-voile { background: var(--voile); border-radius: var(--rayon); padding: 22px; display: grid; place-items: center; }
+    .demo-voile .modal { animation: none; }
+    .demo-toast .toast { position: static; transform: none; opacity: 1; display: inline-block; white-space: nowrap; }
+    .demo-anim { display: flex; gap: 12px; flex-wrap: wrap; }
+    .demo-anim .carte-papier { padding: 12px 16px; font-weight: 700; min-width: 120px; text-align: center; }
+    .icones { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+    .icone-case { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 4px 8px; border-radius: var(--rayon-petit); background: var(--papier-2); color: var(--encre); font-size: .74rem; text-align: center; }
+    .icone-case.bonus { background: var(--blanc); box-shadow: inset 0 0 0 2px var(--ligne); }
+    .icone-case.hors-cadre { background: var(--rouge-clair); }
+    .tailles { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin-top: 12px; }
+    .tailles > span { display: inline-flex; }
+    table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--papier-2); vertical-align: top; }
+    th { font-size: .82rem; color: var(--encre-douce); }
+    td.statut { width: 34px; }
+    td.statut .ok { color: var(--sarcelle); }
+    td.statut .ko { color: var(--rouge); }
+    td .attendu { display: block; color: var(--rouge); font-size: .82rem; }
+    .qualite { display: inline-block; padding: 1px 10px; border-radius: 999px; font-size: .8rem; font-weight: 700; }
+    .qualite.naturelle { background: var(--sarcelle-claire); color: var(--sarcelle-fonce); }
+    .qualite.bonne { background: var(--moutarde-claire); color: var(--moutarde-fonce); }
+    .qualite.basique { background: var(--rouge-clair); color: var(--rouge-fonce); }
+    .clavier-demo { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+    .affichage { min-width: 120px; height: 68px; border: 3px solid var(--lavande); border-radius: var(--rayon-petit); background: #fff; display: grid; place-items: center; font-family: var(--police-titre); font-size: 2rem; font-weight: 600; }
+    #resultat { white-space: pre-wrap; font-size: .75rem; background: var(--blanc); border-radius: var(--rayon-petit); padding: 12px; max-height: 320px; overflow: auto; margin-top: 18px; }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <h1>Mission Galaxie — guide de style</h1>
+      <p>Composants communs (css/base.css), icônes (js/core/icones.js) et voix (js/core/voix.js).</p>
+    </header>
+    <div class="grille" id="grille"></div>
+    <pre id="resultat">en cours…</pre>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="../js/core/ui.js"></script>
+  <script src="../js/core/storage.js"></script>
+  <script src="../js/core/icones.js"></script>
+  <script src="../js/core/voix.js"></script>
+  <script src="../js/core/sons.js"></script>
+  <script>
+  'use strict';
+  (async () => {
+    const { h } = UI;
+    const params = new URLSearchParams(location.search);
+    const rapport = { ok: true };
+    const echec = (cle, detail) => { rapport.ok = false; (rapport.echecs = rapport.echecs || []).push(cle + (detail ? ' : ' + detail : '')); };
+    const ic = (nom, t = 24) => Icone.creer(nom, t);
+    const grille = document.getElementById('grille');
+    const section = (titre, ...contenu) => {
+      const s = h('section', { class: 'section carte-papier' }, h('h2', null, titre), ...contenu);
+      grille.append(s);
+      return s;
+    };
+
+    // ---------------------------------------------------------------- Couleurs
+    const JETONS = {
+      '--papier': '#fbf7ef', '--papier-2': '#f3ecdf', '--ligne': '#e3d9c8', '--encre': '#2d2a32', '--encre-douce': '#6e6878',
+      '--corail': '#ef7b5a', '--corail-fonce': '#cf5c3c', '--sarcelle': '#2a9d8f', '--sarcelle-fonce': '#1f7a6f', '--sarcelle-claire': '#d6efeb',
+      '--lavande': '#7b6ee6', '--lavande-fonce': '#5a4ec4', '--lavande-claire': '#ebe8fb', '--moutarde': '#e9b949', '--moutarde-fonce': '#c7962a',
+      '--rouge': '#d9534f', '--rouge-clair': '#fbe2e0', '--ciel': '#8ecae6', '--nuit': '#23263a',
+    };
+    const racine = getComputedStyle(document.documentElement);
+    const jetonsFaux = Object.entries(JETONS).filter(([k, v]) => racine.getPropertyValue(k).trim().toLowerCase() !== v).map(([k]) => k);
+    for (const k of ['--rayon', '--rayon-petit', '--police', '--police-titre']) if (!racine.getPropertyValue(k).trim()) jetonsFaux.push(k);
+    if (jetonsFaux.length) echec('jetons', jetonsFaux.join(', '));
+    rapport.jetons = { total: Object.keys(JETONS).length + 4, faux: jetonsFaux };
+    section('Couleurs', h('div', { class: 'nuancier' }, Object.entries(JETONS).map(([k, v]) =>
+      h('div', { class: 'teinte' }, h('span', { style: { background: `var(${k})` } }), h('b', null, k.slice(2)), h('i', null, v)))));
+
+    // ---------------------------------------------------------------- Typographie
+    section('Typographie',
+      h('h1', null, 'Planète Plus-ou-Moins'),
+      h('h2', null, 'Titre de section (Fredoka)'),
+      h('h3', { style: { color: 'var(--encre)', fontFamily: 'var(--police-titre)', fontSize: '1.2rem', fontWeight: 600 } }, 'Sous-titre'),
+      h('p', { class: 'enonce' }, 'Léa a ', h('span', { class: 'donnee' }, '35 billes'), '. À la récréation, elle gagne ',
+        h('span', { class: 'donnee' }, '12 billes'), '. ', h('span', { class: 'cherche' }, 'Combien de billes a-t-elle maintenant ?')),
+      h('p', { class: 'petit', style: { marginTop: '10px' } }, 'Texte courant en Andika, conçue pour les jeunes lecteurs. Énoncés en 22 px.'));
+
+    // ---------------------------------------------------------------- Boutons
+    section('Boutons',
+      h('h3', null, 'Variantes (.btn)'),
+      h('div', { class: 'rangee' },
+        h('button', { class: 'btn principal' }, 'Principal'),
+        h('button', { class: 'btn secondaire' }, 'Secondaire'),
+        h('button', { class: 'btn discret' }, 'Discret'),
+        h('button', { class: 'btn danger' }, 'Danger'),
+        h('button', { class: 'btn sarcelle' }, 'Réussi'),
+        h('button', { class: 'btn lavande' }, 'Question'),
+        h('button', { class: 'btn clair' }, 'Clair')),
+      h('h3', null, 'Tailles, icônes, désactivé'),
+      h('div', { class: 'rangee' },
+        h('button', { class: 'btn principal grand' }, ic('lecture', 26), 'Jouer'),
+        h('button', { class: 'btn secondaire' }, ic('haut-parleur', 22), 'Écouter'),
+        h('button', { class: 'btn secondaire petit' }, ic('ampoule', 18), 'Un indice'),
+        h('button', { class: 'btn principal', disabled: true }, 'Valider')),
+      h('h3', null, 'Boutons ronds (.btn-rond, .petit)'),
+      h('div', { class: 'rangee' },
+        h('button', { class: 'btn-rond', 'aria-label': 'Retour' }, ic('retour')),
+        h('button', { class: 'btn-rond principal', 'aria-label': 'Suivant' }, ic('suivant')),
+        h('button', { class: 'btn-rond secondaire', 'aria-label': 'Réglages' }, ic('engrenage')),
+        h('button', { class: 'btn-rond sarcelle', 'aria-label': 'Valider' }, ic('coche')),
+        h('button', { class: 'btn-rond danger', 'aria-label': 'Fermer' }, ic('croix')),
+        h('button', { class: 'btn-rond petit', id: 'rond-petit', 'aria-label': 'Réécouter' }, ic('haut-parleur', 20)),
+        h('button', { class: 'btn-rond petit principal', 'aria-label': 'Aide' }, ic('question', 20)),
+        h('button', { class: 'btn-rond hud-bouton', 'aria-label': 'Carte' }, ic('carte'))));
+
+    // ---------------------------------------------------------------- Formulaires
+    let reglageTest = { vitesse: 0.95, son: true, lecture: false };
+    const segmente = (options, valeur, surChoix) => {
+      const el = h('div', { class: 'segmente', role: 'group' });
+      const rendre = v => { UI.vider(el); for (const o of options) el.append(h('button', { class: o.v === v ? 'actif' : '', 'aria-pressed': String(o.v === v), onclick: () => { surChoix(o.v); rendre(o.v); } }, o.label)); };
+      rendre(valeur);
+      return el;
+    };
+    const interrupteur = (label, valeur) => h('label', { class: 'interrupteur' },
+      h('span', { class: 'interrupteur-texte' }, label), h('input', { type: 'checkbox', checked: !!valeur }), h('span', { class: 'glissiere', 'aria-hidden': 'true' }));
+    section('Formulaires',
+      h('label', { class: 'champ-bloc' }, h('span', { class: 'champ-label' }, 'Prénom'), h('input', { class: 'champ', type: 'text', value: 'Léa', maxlength: '20' })),
+      h('label', { class: 'champ-bloc' }, h('span', { class: 'champ-label' }, 'Voix'),
+        h('select', { class: 'champ' }, h('option', null, 'Automatique (la meilleure)'), h('option', null, 'Denise — naturelle'))),
+      h('div', { class: 'champ-bloc' }, h('span', { class: 'champ-label' }, 'Vitesse de la voix'),
+        segmente([{ v: 0.8, label: 'Lente' }, { v: 0.95, label: 'Normale' }, { v: 1.1, label: 'Rapide' }], reglageTest.vitesse, v => { reglageTest.vitesse = v; })),
+      interrupteur('Alvin parle tout seul', true),
+      interrupteur('Lecture automatique des problèmes', false));
+
+    // ---------------------------------------------------------------- Fenêtre, toast
+    section('Fenêtre, toast',
+      h('div', { class: 'demo-voile' },
+        h('div', { class: 'modal' },
+          h('h2', null, 'Tout recommencer ?'),
+          h('p', null, 'Les étoiles et les planètes seront effacées.'),
+          h('div', { class: 'modal-boutons' }, h('button', { class: 'btn secondaire' }, 'Annuler'), h('button', { class: 'btn danger' }, 'Oui, effacer')))),
+      h('div', { class: 'rangee', style: { marginTop: '14px' } },
+        h('button', { class: 'btn secondaire', onclick: () => UI.modal({ titre: 'Bravo !', contenu: h('p', null, 'Tu as aidé Zubi.'), boutons: [{ label: 'Continuer', classe: 'principal' }] }) }, 'Ouvrir une fenêtre'),
+        h('button', { class: 'btn secondaire', onclick: () => UI.toast('Prénom enregistré') }, 'Afficher un toast'),
+        h('span', { class: 'demo-toast' }, h('span', { class: 'toast' }, 'Nouveau code enregistré'))));
+
+    // ---------------------------------------------------------------- Clavier, animations
+    const affichage = h('div', { class: 'affichage' }, '');
+    const clavier = UI.clavier({
+      chiffre: c => { if (affichage.textContent.length < 4) affichage.textContent += c; },
+      effacer: () => { affichage.textContent = affichage.textContent.slice(0, -1); },
+      valider: () => UI.secouer(affichage),
+    });
+    const carteSecoue = h('div', { class: 'carte-papier' }, '.secoue');
+    section('Clavier et animations',
+      h('div', { class: 'clavier-demo' }, clavier, affichage),
+      h('h3', null, 'Animations sobres (désactivées si « mouvements réduits »)'),
+      h('div', { class: 'demo-anim' },
+        h('button', { class: 'btn secondaire', onclick: () => UI.secouer(carteSecoue) }, 'Secouer'),
+        carteSecoue,
+        h('div', { class: 'carte-papier clignote' }, '.clignote'),
+        h('div', { class: 'carte-papier apparait' }, '.apparait')));
+
+    // ---------------------------------------------------------------- Icônes
+    const casesIcones = Icone.tous.map(nom => h('div', { class: 'icone-case' + (Icone.noms.includes(nom) ? '' : ' bonus'), 'data-nom': nom }, ic(nom, 32), nom));
+    section('Icônes au trait (24 × 24, trait 2 px)',
+      h('div', { class: 'icones' }, casesIcones),
+      h('div', { class: 'tailles' },
+        ...[16, 20, 24, 32, 48].map(t => h('span', null, ic('etoile', t))),
+        h('span', { style: { color: 'var(--moutarde-fonce)' } }, ic('etoile', 32), ic('etoile', 32), ic('etoile-vide', 32)),
+        h('span', { style: { color: 'var(--corail)' } }, ic('fusee', 40)),
+        h('span', { style: { color: 'var(--sarcelle)' } }, ic('valider', 40)),
+        h('span', { style: { color: 'var(--lavande)' } }, ic('question', 40))));
+    // Contrôle : chaque dessin tient dans le cadre 24 × 24 (trait compris)
+    const manquantes = Icone.noms.filter(n => !Icone.existe(n));
+    const horsCadre = [];
+    for (const c of casesIcones) {
+      const svg = c.querySelector('svg');
+      let b;
+      try { b = svg.getBBox(); } catch (e) { b = null; }
+      if (!b || b.width === 0 || b.x < 0.5 || b.y < 0.5 || b.x + b.width > 23.5 || b.y + b.height > 23.5) {
+        horsCadre.push(c.dataset.nom + (b ? ` [${b.x.toFixed(1)},${b.y.toFixed(1)},${(b.x + b.width).toFixed(1)},${(b.y + b.height).toFixed(1)}]` : ''));
+        c.classList.add('hors-cadre');
+      }
+    }
+    const svgTexte = Icone.svg('coeur', 30, 'rouge');
+    const svgOk = /^<svg class="icone icone-coeur rouge" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/.test(svgTexte);
+    const inconnu = Icone.svg('nexiste-pas');
+    rapport.icones = { demandees: Icone.noms.length, dessinees: Icone.tous.length, manquantes, horsCadre, formatSvg: svgOk, repliInconnu: /^<svg/.test(inconnu), elementDom: Icone.creer('maison') instanceof SVGElement };
+    if (manquantes.length || horsCadre.length || !svgOk || !rapport.icones.elementDom || Icone.noms.length !== 35) echec('icones');
+
+    // Compatibilité avec css/jeu.css : « .petit » ne doit pas recolorer « .btn-rond.petit »
+    const couleurRond = getComputedStyle(document.getElementById('rond-petit')).color;
+    rapport.compatibiliteJeu = { couleurBtnRondPetit: couleurRond };
+    if (couleurRond !== 'rgb(90, 78, 196)') echec('btn-rond.petit', couleurRond);
+    // Pas de dégradé dans base.css
+    let degrades = 0;
+    for (const f of document.styleSheets) {
+      if (!f.href || !/base\.css$/.test(f.href)) continue;
+      try { for (const r of f.cssRules) if (/gradient/i.test(r.cssText)) degrades++; } catch (e) { /* lecture interdite */ }
+    }
+    rapport.degradesBaseCss = degrades;
+    if (degrades) echec('degrades');
+
+    // ---------------------------------------------------------------- Normalisation orale
+    const CAS = [
+      ['Le bus part à 8 h 05.', 'Le bus part à 8 heures 5.'],
+      ['Le film dure 1 h 30 min.', 'Le film dure 1 heure 30 minutes.'],
+      ['Il arrive à 14 h 00.', 'Il arrive à 14 heures.'],
+      ['Il est 12 h.', 'Il est 12 heures.'],
+      ['De 9 h à 11 h, il joue.', 'De 9 heures à 11 heures, il joue.'],
+      ['Le trajet dure 45 min.', 'Le trajet dure 45 minutes.'],
+      ['Il reste 1 min.', 'Il reste 1 minute.'],
+      ['Il dort 2 h 15 min.', 'Il dort 2 heures 15 minutes.'],
+      ['La pause dure 0 h 45 min.', 'La pause dure 45 minutes.'],
+      ['Le goûter dure 1 h.', 'Le goûter dure 1 heure.'],
+      ['Rendez-vous à 9:30.', 'Rendez-vous à 9 heures 30.'],
+      ['Il a 1 250 billes.', 'Il a 1250 billes.'],
+      ['La ville compte 12 500 habitants.', 'La ville compte 12500 habitants.'],
+      ['Le livre coûte 2 €.', 'Le livre coûte 2 euros.'],
+      ['Une pomme coûte 1 €.', 'Une pomme coûte 1 euro.'],
+      ['Le gâteau coûte 3,50 €.', 'Le gâteau coûte 3 euros 50.'],
+      ['Un bonbon coûte 0,20 €.', 'Un bonbon coûte 20 centimes.'],
+      ['La gomme coûte 1,05 €.', 'La gomme coûte 1 euro et 5 centimes.'],
+      ['Le vélo coûte 1 250 €.', 'Le vélo coûte 1250 euros.'],
+      ['Les cerises coûtent 6 €/kg.', 'Les cerises coûtent 6 euros le kilo.'],
+      ['La corde mesure 12 m.', 'La corde mesure 12 mètres.'],
+      ['Le crayon mesure 15 cm et la gomme 1 cm.', 'Le crayon mesure 15 centimètres et la gomme 1 centimètre.'],
+      ['Il a marché 3 km.', 'Il a marché 3 kilomètres.'],
+      ['Le sac pèse 2 kg et la pomme 150 g.', 'Le sac pèse 2 kilogrammes et la pomme 150 grammes.'],
+      ["La bouteille contient 1 L d'eau.", "La bouteille contient 1 litre d'eau."],
+      ['Il reste 1,5 L.', 'Il reste 1,5 litre.'],
+      ['Le verre contient 25 cL.', 'Le verre contient 25 centilitres.'],
+      ['Le train roule à 120 km/h.', 'Le train roule à 120 kilomètres par heure.'],
+      ['Il fait 20 °C.', 'Il fait 20 degrés.'],
+      ['50 % des billes sont rouges.', '50 pour cent des billes sont rouges.'],
+      ['Il a 3 s pour répondre.', 'Il a 3 secondes pour répondre.'],
+      ['35 + 12 = 47', '35 plus 12 égale 47'],
+      ['50 − 18 = 32', '50 moins 18 égale 32'],
+      ['12 - 5 = 7', '12 moins 5 égale 7'],
+      ['6 × 4 = 24', '6 fois 4 égale 24'],
+      ['3 x 4', '3 fois 4'],
+      ['24 ÷ 3 = 8', '24 divisé par 3 égale 8'],
+      ['12 : 3 = 4', '12 divisé par 3 égale 4'],
+      ['35 + ? = 50', '35 plus combien égale 50'],
+      ['8 × 5 = ?', '8 fois 5 égale combien'],
+      ['« Bonjour ! » dit Zubi.', 'Bonjour ! dit Zubi.'],
+      ['Bravo 🚀 ! Tu as gagné ⭐ 3 étoiles ✨', 'Bravo ! Tu as gagné 3 étoiles'],
+      ['Combien de billes a-t-elle ?', 'Combien de billes a-t-elle ?'],
+      ['C’est le 1er jour et la 2e fois.', "C'est le premier jour et la deuxième fois."],
+      ['Elle mange 1/4 du gâteau.', 'Elle mange 1 quart du gâteau.'],
+      ['Zubi – le jardinier – arrose.', 'Zubi, le jardinier, arrose.'],
+      ["Il m'a dit 2 mots.", "Il m'a dit 2 mots."],
+      ['Il est 8 h 05 et il a 2 500 points.', 'Il est 8 heures 5 et il a 2500 points.'],
+      ['Bonjour Léa ! Je suis Alvin, le chat astronaute. Le bus part à 8 h 05 et coûte 2 €.', 'Bonjour Léa ! Je suis Alvin, le chat astronaute. Le bus part à 8 heures 5 et coûte 2 euros.'],
+    ];
+    const lignes = [];
+    const echecsNorm = [];
+    for (const [entree, attendu] of CAS) {
+      const sortie = Voix.pourOral(entree);
+      const ok = sortie === attendu;
+      if (!ok) echecsNorm.push({ entree, sortie, attendu });
+      lignes.push(h('tr', null,
+        h('td', null, entree),
+        h('td', null, sortie, !ok && h('span', { class: 'attendu' }, 'attendu : ' + attendu)),
+        h('td', { class: 'statut' }, h('span', { class: ok ? 'ok' : 'ko' }, ic(ok ? 'coche' : 'croix', 20))),
+        h('td', null, h('button', { class: 'btn-rond petit', 'aria-label': 'Écouter', onclick: () => Voix.dire(entree) }, ic('haut-parleur', 18)))));
+    }
+    rapport.normalisation = { total: CAS.length, reussis: CAS.length - echecsNorm.length, echecs: echecsNorm };
+    if (echecsNorm.length) echec('normalisation', echecsNorm.length + ' cas');
+
+    // Découpage en phrases courtes
+    const longue = 'Au marché de la planète, Zubi achète des pommes rouges, des poires bien mûres, trois melons, une grosse citrouille orange, ' +
+      'des carottes pour ses lapins, du pain, du fromage, des fraises des bois et un énorme bouquet de fleurs bleues pour sa grand-mère qui habite près du lac.';
+    const texteDecoupe = 'Bonjour ! Je suis Alvin. Le bus part à 8 heures 5. Il coûte 2 euros. Combien de pièces faut-il pour payer le ticket du bus ?';
+    const morceaux1 = Voix.decouper(texteDecoupe);
+    const morceaux2 = Voix.decouper(longue);
+    const recolle = m => m.join(' ');
+    rapport.decoupage = {
+      phrases: morceaux1,
+      longue: morceaux2,
+      ok: morceaux1.length >= 2 && morceaux2.length >= 2 && [...morceaux1, ...morceaux2].every(m => m.length <= 170 && m.length > 0)
+        && recolle(morceaux1) === texteDecoupe && recolle(morceaux2) === longue
+        && Voix.decouper('Il coûte 3,50 euros.').length === 1 && Voix.decouper('').length === 0,
+    };
+    if (!rapport.decoupage.ok) echec('decoupage');
+
+    // ---------------------------------------------------------------- Classement simulé des voix
+    const VOIX_SIM = [
+      { name: 'Microsoft Hortense - French (France)', lang: 'fr-FR', localService: true },
+      { name: 'Microsoft Julie - French (France)', lang: 'fr-FR', localService: true },
+      { name: 'Microsoft Paul - French (France)', lang: 'fr-FR', localService: true },
+      { name: 'Google français', lang: 'fr-FR', localService: false },
+      { name: 'Microsoft Denise Online (Natural) - French (France)', lang: 'fr-FR', localService: false },
+      { name: 'Microsoft Henri Online (Natural) - French (France)', lang: 'fr-FR', localService: false },
+      { name: 'Microsoft Vivienne Multilingual Online (Natural) - French (France)', lang: 'fr-FR', localService: false },
+      { name: 'Microsoft Sylvie Online (Natural) - French (Canada)', lang: 'fr-CA', localService: false },
+      { name: 'fr-fr-x-frc-network', lang: 'fr-FR', localService: false },
+      { name: 'fr-fr-x-frd-local', lang: 'fr-FR', localService: true },
+      { name: 'Thomas', lang: 'fr-FR', localService: true },
+      { name: 'Amélie (Enhanced)', lang: 'fr-CA', localService: true },
+      { name: 'eSpeak French', lang: 'fr', localService: true },
+      { name: 'Microsoft Zira - English (United States)', lang: 'en-US', localService: true },
+      { name: 'Google UK English Female', lang: 'en-GB', localService: false },
+    ];
+    const triees = Voix.listeTriee(VOIX_SIM);
+    const ordre = triees.map(v => v.name);
+    const rang = nom => ordre.indexOf(nom);
+    const RANG_Q = { naturelle: 0, bonne: 1, basique: 2 };
+    const qualites = Object.fromEntries(triees.map(v => [v.name, Voix.qualite(v)]));
+    const attendues = {
+      'Microsoft Denise Online (Natural) - French (France)': 'naturelle',
+      'Microsoft Hortense - French (France)': 'basique',
+      'Google français': 'bonne',
+      'fr-fr-x-frc-network': 'naturelle',
+      'fr-fr-x-frd-local': 'bonne',
+      'Microsoft Paul - French (France)': 'basique',
+      'eSpeak French': 'basique',
+      'Amélie (Enhanced)': 'naturelle',
+    };
+    const controles = {
+      deniseEnPremier: ordre[0] === 'Microsoft Denise Online (Natural) - French (France)',
+      qualitesAttendues: Object.entries(attendues).every(([n, q]) => qualites[n] === q),
+      qualiteDecroissante: triees.every((v, i) => !i || RANG_Q[Voix.qualite(triees[i - 1])] <= RANG_Q[Voix.qualite(v)]),
+      frFRAvantFrCA: rang('fr-fr-x-frc-network') < rang('Microsoft Sylvie Online (Natural) - French (Canada)'),
+      googleAvantSapi: rang('Google français') < rang('Microsoft Hortense - French (France)'),
+      googleAvantAutresBonnes: rang('Google français') < rang('fr-fr-x-frd-local') && rang('Google français') < rang('Thomas'),
+      reseauAvantGoogle: rang('fr-fr-x-frc-network') < rang('Google français'),
+      localAvantSapi: rang('fr-fr-x-frd-local') < rang('Microsoft Paul - French (France)'),
+      sansAnglais: !ordre.some(n => /English/.test(n)),
+    };
+    rapport.classement = { ordre: ordre.map(n => `${n} (${qualites[n]})`), controles, ok: Object.values(controles).every(Boolean) };
+    if (!rapport.classement.ok) echec('classement');
+
+    // ---------------------------------------------------------------- Lecture : scénarios avec un moteur simulé
+    class FauxEnonce {
+      constructor(texte) { this.text = texte; this.voice = null; this.lang = ''; this.rate = 1; this.pitch = 1; this.volume = 1; this.onstart = this.onend = this.onerror = null; }
+    }
+    function fauxMoteur(voix, comportement) {
+      const f = { speaking: false, pending: false, paused: false, journal: [], pauses: 0 };
+      let file = [], courant = null, minuteur = null;
+      f.getVoices = () => voix;
+      f.addEventListener = () => {};
+      f.speak = u => { file.push(u); demarrer(); };
+      function demarrer() {
+        f.pending = file.length > (courant ? 0 : 1);
+        if (courant || !file.length) return;
+        courant = file.shift();
+        f.pending = file.length > 0;
+        f.speaking = true;
+        const u = courant;
+        minuteur = setTimeout(() => {
+          const c = comportement(u, f);
+          const nom = u.voice ? u.voice.name : null;
+          if (c === 'reseau' || c === 'bloque') {
+            courant = null; f.speaking = false;
+            if (u.onerror) u.onerror({ error: c === 'reseau' ? 'network' : 'not-allowed' });
+            demarrer();
+            return;
+          }
+          if (c === 'muet') { courant = null; f.speaking = false; return; }
+          f.journal.push({ texte: u.text, voix: nom });
+          if (u.onstart) u.onstart({});
+          minuteur = setTimeout(() => {
+            courant = null; f.speaking = false;
+            if (c !== 'finPerdue' && u.onend) u.onend({});
+            demarrer();
+          }, 30 + u.text.length * 2);
+        }, 20);
+      }
+      f.cancel = () => {
+        clearTimeout(minuteur);
+        const u = courant;
+        courant = null; file = []; f.speaking = false; f.pending = false;
+        if (u && u.onerror) setTimeout(() => u.onerror({ error: 'canceled' }), 0);
+      };
+      f.pause = () => { f.paused = true; f.pauses++; };
+      f.resume = () => { f.paused = false; };
+      return f;
+    }
+    const attendre = ms => new Promise(r => setTimeout(r, ms));
+    async function scenario({ voix = VOIX_SIM, comportement = () => 'ok', textes, options = {}, pendant, delai = 6000 }) {
+      const f = fauxMoteur(voix, comportement);
+      Voix._injecter(f, { Enonce: FauxEnonce, ...options });
+      const res = { segments: [], fin: false };
+      const debut = Date.now();
+      await new Promise(resolve => {
+        Voix.dire(textes, { onSegment: i => res.segments.push(i), onFin: () => { res.fin = true; res.duree = Date.now() - debut; resolve(); } });
+        if (pendant) pendant(f);
+        setTimeout(resolve, delai);
+      });
+      res.lus = f.journal.map(j => j.texte);
+      res.voix = [...new Set(f.journal.map(j => j.voix))];
+      res.f = f;
+      return res;
+    }
+    const DENISE = 'Microsoft Denise Online (Natural) - French (France)';
+    const textes = ['Le bus part à 8 h 05.', 'Il coûte 2 €. Combien de pièces faut-il ?'];
+    const lusAttendus = ['Le bus part à 8 heures 5.', 'Il coûte 2 euros. Combien de pièces faut-il ?'];
+    const memes = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const scen = {};
+    try {
+      // A. Lecture normale : meilleure voix, karaoké, fin
+      let r = await scenario({ textes });
+      scen.normal = { ok: r.fin && memes(r.segments, [0, 1, -1]) && memes(r.lus, lusAttendus) && memes(r.voix, [DENISE]), segments: r.segments, lus: r.lus, voix: r.voix };
+
+      // B. Plus d'internet : les voix en ligne échouent → la meilleure voix locale prend le relais sans perdre de phrase
+      const meilleureLocale = Voix.listeTriee(VOIX_SIM).find(v => v.localService).name;
+      r = await scenario({ textes, comportement: u => (u.voice && !u.voice.localService ? 'reseau' : 'ok') });
+      scen.horsLigne = { ok: r.fin && memes(r.segments, [0, 1, -1]) && memes(r.lus, lusAttendus) && memes(r.voix, [meilleureLocale]), segments: r.segments, voix: r.voix, voixEvitees: Voix.enPanne().length };
+
+      // C. Événement de fin perdu (bogue Chrome) : la surveillance enchaîne quand même
+      r = await scenario({ textes, comportement: () => 'finPerdue' });
+      scen.finPerdue = { ok: r.fin && memes(r.segments, [0, 1, -1]) && r.lus.length === 2, segments: r.segments, duree: r.duree };
+
+      // D. Lecture refusée avant le premier toucher (Chrome) : le jeu continue, puis on relit au premier toucher
+      let refuse = true;
+      r = await scenario({ textes, comportement: () => (refuse ? 'bloque' : 'ok'), delai: 1500 });
+      const finAvant = r.fin, lusAvant = r.lus.length;
+      refuse = false;
+      document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await attendre(1500);
+      scen.bloqueAvantToucher = { ok: finAvant && lusAvant === 0 && memes(r.f.journal.map(j => j.texte), lusAttendus), finAvant, lusApresToucher: r.f.journal.length };
+
+      // E. Arrêt pendant la lecture : plus rien n'est lu, pas de onFin
+      r = await scenario({ textes: ['Première phrase assez longue pour être interrompue en plein milieu.', 'Deuxième phrase.', 'Troisième phrase.'], pendant: () => setTimeout(() => Voix.stop(), 120), delai: 1500 });
+      scen.arret = { ok: !r.fin && r.lus.length === 1 && memes(r.segments, [0]), lus: r.lus.length, segments: r.segments };
+
+      // F. Voix muette (rien ne démarre) : on abandonne après quelques secondes sans bloquer le jeu
+      r = await scenario({ voix: [VOIX_SIM[0]], textes: ['Bonjour.'], comportement: () => 'muet', delai: 9000 });
+      scen.voixMuette = { ok: r.fin && r.duree < 7000, duree: r.duree, segments: r.segments };
+
+      // G. La voix choisie dans l'espace coach est respectée
+      Store.data.reglages.voixNom = 'Google français';
+      r = await scenario({ textes: ['Bonjour.'] });
+      Store.data.reglages.voixNom = '';
+      scen.voixReglage = { ok: r.fin && memes(r.voix, ['Google français']), voix: r.voix };
+
+      // H. Vitesse lue dans les réglages
+      Store.data.reglages.vitesse = 0.8;
+      let vitesseVue = null;
+      await scenario({ textes: ['Bonjour.'], comportement: u => { vitesseVue = u.rate; return 'ok'; } });
+      Store.data.reglages.vitesse = 0.95;
+      scen.vitesse = { ok: vitesseVue === 0.8, vitesseVue };
+
+      // Conseils pour l'espace coach selon l'appareil
+      const conseil = (voix, options) => { Voix._injecter(fauxMoteur(voix, () => 'ok'), { Enonce: FauxEnonce, ...options }); return Voix.conseil(); };
+      const V = nom => VOIX_SIM.find(v => v.name === nom);
+      rapport.conseils = {
+        androidReseau: conseil([V('fr-fr-x-frd-local'), V('fr-fr-x-frc-network')], { android: true, apple: false, edge: false }),
+        androidLocal: conseil([V('fr-fr-x-frd-local')], { android: true, apple: false, edge: false }),
+        androidSansVoix: conseil([], { android: true, apple: false, edge: false }),
+        pcChrome: conseil([V('Microsoft Hortense - French (France)'), V('Google français')], { android: false, apple: false, edge: false }),
+        pcEdge: conseil(VOIX_SIM, { android: false, apple: false, edge: true }),
+        pcEdgeHorsLigne: conseil([V('Microsoft Hortense - French (France)')], { android: false, apple: false, edge: true }),
+      };
+      const c = rapport.conseils;
+      scen.conseils = {
+        ok: /naturelle/.test(c.androidReseau) && /Synthèse vocale/.test(c.androidLocal) && /réseau/.test(c.androidLocal)
+          && /Aucune voix/.test(c.androidSansVoix) && /Microsoft Edge/.test(c.pcChrome) && /Denise/.test(c.pcEdge) && /robotique/.test(c.pcEdgeHorsLigne),
+      };
+    } catch (e) {
+      scen.erreur = String(e && e.stack || e);
+    }
+    Voix._injecter(null); // retour au vrai moteur
+    for (const k of Object.keys(scen)) if (k !== 'erreur' && !scen[k].ok) echec('lecture', k);
+    if (scen.erreur) echec('lecture', scen.erreur);
+    rapport.lecture = scen;
+
+    // ---------------------------------------------------------------- Section voix (moteur réel)
+    const reelles = Voix.listeTriee();
+    const listeReelle = h('table', null, h('tr', null, h('th', null, 'Voix de cet appareil (de la meilleure à la moins bonne)'), h('th', null, 'Qualité'), h('th', null, '')),
+      reelles.length ? reelles.map(v => h('tr', null, h('td', null, v.name, ' ', h('span', { class: 'petit' }, v.lang)),
+        h('td', null, h('span', { class: 'qualite ' + Voix.qualite(v) }, Voix.qualite(v))),
+        h('td', null, h('button', { class: 'btn-rond petit', 'aria-label': 'Écouter', onclick: () => { Store.data.reglages.voixNom = v.name; Voix.dire('Bonjour ! Je suis Alvin. Le bus part à 8 h 05 et coûte 2,50 €.'); Store.data.reglages.voixNom = ''; } }, ic('haut-parleur', 18)))))
+        : h('tr', null, h('td', { colspan: '3' }, 'Aucune voix française détectée (navigateur sans voix, ou voix pas encore chargées).')));
+    section('Voix de cet appareil',
+      h('p', null, h('b', null, 'Voix choisie : '), Voix.actuelle() ? Voix.actuelle().name : 'aucune'),
+      h('p', { class: 'conseil-voix petit' }, Voix.conseil()),
+      listeReelle,
+      h('div', { class: 'rangee', style: { marginTop: '12px' } },
+        h('button', { class: 'btn principal', onclick: () => Voix.dire(['Bonjour ! Je suis Alvin, le chat astronaute.', 'Le bus part à 8 h 05 et coûte 2,50 €.', 'Combien de pièces faut-il ?']) }, ic('haut-parleur', 22), 'Tester la voix'),
+        h('button', { class: 'btn secondaire', onclick: () => Voix.stop() }, ic('pause', 22), 'Arrêter')));
+    rapport.voixReelles = reelles.map(v => `${v.name} (${Voix.qualite(v)})`);
+
+    section('Lecture à voix haute : texte écrit → texte lu',
+      h('table', null, h('tr', null, h('th', null, 'Écrit'), h('th', null, 'Lu'), h('th', null, ''), h('th', null, '')), lignes)).classList.add('large');
+
+    section('Classement simulé des voix',
+      h('table', null, h('tr', null, h('th', null, '#'), h('th', null, 'Voix'), h('th', null, 'Qualité')),
+        triees.map((v, i) => h('tr', null, h('td', null, String(i + 1)), h('td', null, v.name, ' ', h('span', { class: 'petit' }, v.lang)),
+          h('td', null, h('span', { class: 'qualite ' + Voix.qualite(v) }, Voix.qualite(v)))))));
+
+    rapport.ok = rapport.ok && !rapport.echecs;
+    document.getElementById('resultat').textContent = JSON.stringify(rapport, null, 2);
+    if (params.get('haut') === 'icones') document.querySelector('.icones').scrollIntoView();
+  })();
+  </script>
+</body>
+</html>

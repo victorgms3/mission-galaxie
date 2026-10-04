@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Relecture des problèmes</title>
+</head>
+<body>
+  <h1>Relecture des problèmes</h1>
+  <p>Paramètres : <code>?fichier=plusmoins-1</code> (une banque), <code>&amp;de=1&amp;a=45</code> (numéros de modèles),
+    <code>&amp;tirages=2</code> (exemples par grade). Chaque modèle est montré à tous ses grades, avec des prénoms de fille,
+    de garçon et commençant par une voyelle (pour vérifier accords et élisions), avec et sans phrase piège.</p>
+  <pre id="resultat">en cours…</pre>
+  <script src="../js/core/ui.js"></script>
+  <script src="../js/problemes/moteur.js"></script>
+  <script>
+  'use strict';
+  const params = new URLSearchParams(location.search);
+  const FICHIER = params.get('fichier') || 'plusmoins-1';
+  const DE = parseInt(params.get('de') || '1', 10);
+  const A = parseInt(params.get('a') || '999', 10);
+  const TIRAGES = parseInt(params.get('tirages') || '2', 10);
+
+  // Deux contextes : prénoms ordinaires, puis prénoms à voyelle initiale (élisions « d'Inès », « qu'Adam »)
+  const CONTEXTES = [
+    { enfant: { n: 'Emma', g: 'f' }, amis: [{ n: 'Hugo', g: 'm' }, { n: 'Léa', g: 'f' }], pnj: { n: 'Zubi', g: 'm' } },
+    { enfant: { n: 'Inès', g: 'f' }, amis: [{ n: 'Adam', g: 'm' }, { n: 'Oscar', g: 'm' }], pnj: { n: 'Plim', g: 'f' } },
+  ];
+
+  function decrireSchema(s) {
+    if (!s) return 'sans schéma';
+    const slots = Object.entries(s.slots).map(([k, v]) => `${k}=${v}`).join(' ');
+    const labels = Object.entries(s.labels || {}).map(([k, v]) => `${k}:« ${v} »`).join(' ');
+    return `${s.forme} [${slots}] ${labels}`;
+  }
+
+  function decrire(p) {
+    const lignes = [];
+    lignes.push('  ÉNONCÉ : ' + p.oral.join(' '));
+    p.etapes.forEach((e, i) => {
+      const o = e.op;
+      const fmt = (v, f) => Problemes.formater(v, f || 'nombre');
+      let l = `  ÉTAPE ${i + 1} : ${fmt(o.g, o.formats && o.formats.g)} ${o.signe} ${fmt(o.d, o.formats && o.formats.d)} = ${fmt(o.r, o.formats && o.formats.r)}`;
+      l += ` | schéma ${decrireSchema(e.schema)}`;
+      if (e.question) l += ` | sous-question : ${e.question} | autres : ${(e.autresQuestions || []).join(' / ')}`;
+      lignes.push(l);
+    });
+    lignes.push('  CARTES : ' + Object.entries(p.cartes).map(([k, v]) => `${k}=« ${v} »`).join(' ') + (p.distracteur ? ' (avec phrase piège)' : ''));
+    lignes.push('  ✔ ' + p.reponse.juste);
+    p.reponse.fausses.forEach(f => lignes.push('  ✘ ' + f));
+    return lignes.join('\n');
+  }
+
+  function charger() {
+    return new Promise(res => {
+      const s = document.createElement('script');
+      s.src = `../js/problemes/banques/${FICHIER}.js`;
+      s.onload = res;
+      s.onerror = () => { document.getElementById('resultat').textContent = 'Banque introuvable : ' + FICHIER; };
+      document.body.append(s);
+    });
+  }
+
+  charger().then(() => {
+    const sortie = [];
+    let nb = 0;
+    for (const notion of Problemes.NOTIONS) {
+      for (const m of Problemes.BANQUES[notion]) {
+        const num = parseInt(m.id.slice(m.id.lastIndexOf('-') + 1), 10);
+        if (!m.id.startsWith(FICHIER + '-') || num < DE || num > A) continue;
+        nb++;
+        sortie.push(`\n=== ${m.id} · ${m.structure} · thèmes ${(m.themes || []).join(', ')} · grades ${Problemes.niveauxDe(m).join(', ')}`);
+        for (const niv of Problemes.niveauxDe(m)) {
+          for (let t = 0; t < TIRAGES; t++) {
+            const ctx = CONTEXTES[t % CONTEXTES.length];
+            let p = null;
+            try {
+              p = Problemes.instancier(m, notion, niv, ctx, { piege: t % 2 === 1 });
+            } catch (e) {
+              sortie.push(`-- grade ${niv} : EXCEPTION ${e.message}`);
+              continue;
+            }
+            if (!p) { sortie.push(`-- grade ${niv} : tirage impossible`); continue; }
+            sortie.push(`-- grade ${niv}, tirage ${t + 1} (enfant ${ctx.enfant.n})\n` + decrire(p));
+          }
+        }
+      }
+    }
+    document.getElementById('resultat').textContent = `${nb} modèles de ${FICHIER} (n° ${DE} à ${A})\n` + sortie.join('\n');
+  });
+  </script>
+</body>
+</html>
