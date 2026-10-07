@@ -417,7 +417,7 @@ const Ecrans = (() => {
       ['operation', "Choisir l'opération"],
       ['calcul', 'Calculer'],
       ['reponse', 'Choisir la phrase réponse'],
-    ];
+    ].filter(([k]) => k !== 'plan' || notionsJouables().some(([id]) => id === 'defi'));   // le plan n'existe qu'au Grand Défi (vague 2)
     const lignes = ETAPES.map(([k, nom]) => {
       const n = J.filter(j => j.erreurs && j.erreurs[k] > 0).length;
       const pct = Math.round((100 * n) / J.length);

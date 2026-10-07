@@ -142,12 +142,15 @@ const Resolution = (() => {
   }
 
   // Indices progressifs : chaque appui donne un indice plus précis
+  // Une fois tous les indices donnés, un nouvel appui redit le dernier sans compter d'aide en plus,
+  // et le bouton se cache après le dernier indice (il revient si Alvin reparle après une erreur).
   function donnerIndice(messages, aideFinale) {
-    P.aides++;
-    const n = Math.min(P.niveauIndice++, messages.length - 1);
+    const dernier = messages.length - 1;
+    const n = Math.min(P.niveauIndice, dernier);
+    if (P.niveauIndice <= dernier) { P.aides++; P.niveauIndice++; }
     const m = messages[n];
-    dit(typeof m === 'function' ? m() : m, { humeur: 'reflechit' });
-    if (n === messages.length - 1 && aideFinale) aideFinale();
+    dit(typeof m === 'function' ? m() : m, { humeur: 'reflechit', indice: n < dernier });
+    if (n === dernier && aideFinale) aideFinale();
   }
 
   // ---------------------------------------------------------------------------
@@ -524,7 +527,9 @@ const Resolution = (() => {
       const nbVal = S.slots.nb === '?' ? null : val[S.slots.nb];
       const k = nbVal && nbVal <= 10 ? nbVal : null;
       const nBoites = k || 4;
-      if (nBoites > 6) courts.add('taille');
+      // la 1re boîte ne montre que le nombre, comme les autres boîtes : l'unité est dans la légende
+      // « ↑ … par … » juste en dessous (sinon « 2 cartes » est coupé au milieu du mot dès 5 boîtes)
+      if (nBoites > 6 || (S.labels && S.labels.taille)) courts.add('taille');
       const boites = h('div', { class: 'rangee grp-boites' + (nBoites > 6 ? ' serrees' : '') });
       extras.copies = { taille: [] };
       for (let i = 0; i < nBoites; i++) {
@@ -850,6 +855,17 @@ const Resolution = (() => {
     }
   }
 
+  // Indice intermédiaire : le sens du problème, sans dire le nom de l'opération
+  function sensOperation(et) {
+    const sansNom = t => t.replace(/\s*C['’]est une [a-zé]+ !\s*$/, '');
+    const S = et.schema;
+    if (S && P.schemaFait && !P.deux) {
+      const slot = Object.keys(S.slots).find(s => S.slots[s] === '?');
+      if (slot) return `Le point d'interrogation est sur ${descriptionCase(S, slot)}. ${sansNom(pourquoi(et))}`;
+    }
+    return sansNom(pourquoi(et));
+  }
+
   function questionGuide(et) {
     const S = et.schema;
     if (S && P.schemaFait) {
@@ -895,7 +911,15 @@ const Resolution = (() => {
     else if (P.schemaFait) dit("Quelle opération faut-il faire ? Regarde ton schéma pour t'aider.");
     else dit(signes.length === 2 ? 'Quelle opération faut-il faire : une addition ou une soustraction ?' : 'Quelle opération faut-il faire ?');
 
-    P.indice = () => donnerIndice([questionGuide(et), pourquoi(et)], () => {
+    // Trois indices : (1) la question guide, et la case « ? » du schéma clignote ;
+    // (2) le sens (où est le « ? », ce qu'on fait) sans nommer l'opération ;
+    // (3) l'explication complète, et le bon bouton clignote.
+    const caseInconnue = !P.deux && P.schemaFait && aide.querySelector ? aide.querySelector('.res-carte.inconnue') : null;
+    P.indice = () => donnerIndice([
+      () => { if (caseInconnue) caseInconnue.classList.add('res-clignote'); return questionGuide(et); },
+      () => sensOperation(et),
+      () => { if (caseInconnue) caseInconnue.classList.remove('res-clignote'); return pourquoi(et); },
+    ], () => {
       boutons.querySelectorAll('.btn-op').forEach(b => b.classList.toggle('res-clignote', b.dataset.signe === op.signe));
     });
 
@@ -1008,7 +1032,8 @@ const Resolution = (() => {
         const diag = w.diagnostic();
         w.marquer();
         let m = diag ? `Presque ! Vérifie ${diag}.` : 'Presque ! Vérifie ton calcul.';
-        if (w.type === 'pose' && op.signe !== '−') m += " N'oublie pas les retenues !";
+        // conseil seulement si le calcul a vraiment une retenue (sinon il pousserait à en inventer une)
+        if (w.type === 'pose' && op.signe !== '−' && w.aRetenue) m += " N'oublie pas les retenues !";
         dit(m, { humeur: 'reflechit' });
       } else {
         P.verrou = true;

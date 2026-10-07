@@ -162,6 +162,7 @@ const Widgets = (() => {
     const chiffre = (s, j) => (j < s.length ? +s[s.length - 1 - j] : null);
     const textes = [];
     let ret = 0;
+    textes.aRetenue = false; // vrai si au moins une colonne produit une retenue
     for (let j = 0; j < n; j++) {
       const nom = NOMS_COL[j] || 'chiffres';
       const a = chiffre(H, j), b = chiffre(B, j);
@@ -196,6 +197,7 @@ const Widgets = (() => {
           ret = p >= 10 ? Math.floor(p / 10) : 0;
         }
       }
+      if (ret) textes.aRetenue = true;
       textes.push(t);
     }
     return textes;
@@ -274,6 +276,7 @@ const Widgets = (() => {
     return {
       el: h('div', { class: 'res-pose-cadre' }, grille),
       type: 'pose',
+      aRetenue: explications.aRetenue, // le calcul a-t-il vraiment une retenue ?
       saisir(ch) {
         if (cibleRetenue) {
           cibleRetenue.textContent = ch;

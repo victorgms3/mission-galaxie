@@ -1,7 +1,7 @@
 /* Service worker : permet à Mission Galaxie de fonctionner sans connexion.
    La liste FICHIERS correspond exactement aux fichiers chargés par index.html (+ manifeste et icônes).
    Changer VERSION à chaque mise à jour pour que les tablettes rechargent les fichiers. */
-const VERSION = 'mission-galaxie-v2-2';
+const VERSION = 'mission-galaxie-v2-4';
 const FICHIERS = [
   './',
   'index.html',

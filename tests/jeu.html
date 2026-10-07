@@ -19,7 +19,8 @@
       &planete=plusmoins|paquets|marche   ne jouer que cette planète (sa route est ouverte d'office)
       &rapide=1                           habitants déjà aidés 3 fois sur 4 et zones ouvertes : 1 problème par habitant
       &ecran=config|histoire|planete|titre|dialogue|resolution|coffre|piece|espace|carnet|coach
-                                          s'arrête sur cet écran (captures) ; avec ecran=resolution, &etape=lire|question|infos|schema|operation|calcul|reponse|fin
+                                          s'arrête sur cet écran (captures) ; avec ecran=resolution, &etape=lire|question|infos|schema|operation|calcul|reponse|fin ;
+                                          avec ecran=carnet, &onglet=souvenirs|grades
       &voix=1                             laisse Alvin parler (sinon voix coupée : pas de synthèse vocale fiable sans fenêtre)
     Exemples (temps virtuel : prévoir -Attente large) :
       outils/tester.ps1 -Page "tests/jeu.html?auto=1" -Attente 3000000
@@ -204,6 +205,11 @@
       const [sx, sy] = moteur.versEcran(p.x, p.y);
       const r = canvas.getBoundingClientRect();
       const cx = r.left + sx, cy = r.top + sy;
+      if (cx < 0 || cy < 0 || cx >= innerWidth || cy >= innerHeight) {
+        // habitant hors de l'écran : un enfant ne peut pas le toucher, on y marche (pas de vrai toucher à tester ici)
+        rapport.toucherHorsEcran = (rapport.toucherHorsEcran || []).concat(p.nom);
+        return marcherVers(p.x, p.y, 'habitant ' + p.nom, p.id);
+      }
       const dessus = document.elementFromPoint(cx, cy);
       if (!verif(`toucher réel : le toucher sur ${p.nom} arrive bien à la carte (pas au HUD)`, dessus === canvas, dessus && (dessus.className.baseVal || dessus.className))) {
         return marcherVers(p.x, p.y, 'habitant ' + p.nom, p.id);
@@ -473,6 +479,8 @@
       const connus = $$('.carnet-ami:not(.inconnu)').length;
       const attendus = visibles.reduce((n, m) => n + m.pnj.filter(p => D.carnet.includes(m.id + ':' + p.id)).length, 0);
       verif('carnet : amis aidés (portraits) et habitants à découvrir', connus === attendus && connus > 0 && $$('.carnet-ami').length === visibles.reduce((n, m) => n + m.pnj.length, 0), { connus, attendus });
+      // captures d'un autre onglet : &onglet=souvenirs|grades
+      if (ECRAN === 'carnet' && prm.get('onglet')) cliquer(bouton({ souvenirs: 'Souvenirs', grades: 'Mes grades' }[prm.get('onglet')]), 'onglet ' + prm.get('onglet'));
       arret('carnet');
       cliquer(bouton('Souvenirs'), 'onglet Souvenirs');
       const trouves = $$('.carnet-souvenir:not(.inconnu)').length;
@@ -532,6 +540,7 @@
       cliquer(bouton("D'accord", dialogueOuvert()), "D'accord");
       const m = await attendre(rappel, 'rappel de pause (repoussé d\'une minute)', 65000);
       verif('pause : le rappel arrive ensuite et Alvin s\'arrête', J().moteur.debug().bloque);
+      verif('pause : durée de jeu correcte dans le message (« 1 minute »)', /Tu joues depuis 1 minute,/.test(texte(m)), texte($('p', m)));
       cliquer(bouton('Faire une pause', m), 'Faire une pause');
       await attendre(() => $('.ecran-titre'), 'écran titre après la pause');
       verif('pause : « Faire une pause » ramène à l\'écran titre', !J().moteur && !rappel());
@@ -624,7 +633,8 @@
       await pause(20);
       const t = texte($('.hud-bulle-texte'));
       verif(`${J().monde.id} : passage fermé touché → Alvin explique comment l'ouvrir`,
-        !$('.hud-bulle').hidden && t.startsWith(norm(z.message)) && t.includes(`Encore ${z.requis - etat.resolus} problème`), t);
+        !$('.hud-bulle').hidden && t.startsWith(norm(z.message))
+          && (t.includes(`Encore ${z.requis - etat.resolus} problème`) || (etat.resolus === 0 && z.message.includes(`${z.requis} problème`) && !t.includes('Encore'))), t);
     }
 
     async function fuseeSansRoute() {

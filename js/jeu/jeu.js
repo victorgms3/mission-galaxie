@@ -174,7 +174,10 @@ const Jeu = (() => {
     ui.bulle.classList.add('apparait');
     if (R().alvinParle) Voix.dire(texte, surFinVoix ? { onFin: surFinVoix } : undefined);
     clearTimeout(minuteurBulle);
-    if (duree) minuteurBulle = setTimeout(fermerBulle, duree);
+    // une lectrice de 8 ans lit lentement : au moins 2,5 s + 0,45 s par mot (45 mots ≈ 23 s).
+    // Toucher la carte ferme la bulle de toute façon (surTouche).
+    const mots = String(texte).split(/\s+/).filter(Boolean).length;
+    if (duree) minuteurBulle = setTimeout(fermerBulle, Math.max(duree, 2500 + mots * 450));
   }
   function fermerBulle() {
     if (ui.bulle) ui.bulle.hidden = true;
@@ -519,7 +522,9 @@ const Jeu = (() => {
     const z = monde.zones.find(q => q.id === ent.zone);
     if (!z || zoneOuverte(z.id)) return;
     const reste = Math.max(0, z.requis - etat.resolus);
-    const encore = reste ? ` Encore ${reste} problème${reste > 1 ? 's' : ''} à résoudre !` : '';
+    // pas de « Encore 8 problèmes » si le message vient déjà de dire « (8 problèmes) »
+    const dejaDit = reste === z.requis && String(z.message || '').includes(`${z.requis} problème`);
+    const encore = reste && !dejaDit ? ` Encore ${reste} problème${reste > 1 ? 's' : ''} à résoudre !` : '';
     raconter((z.message || 'Ce passage est encore fermé.') + encore, 'reflechit', 9000);
   }
 
@@ -538,25 +543,45 @@ const Jeu = (() => {
   // ---------------------------------------------------------------------------
   // Rappel de pause
   // ---------------------------------------------------------------------------
-  function programmerPause(minutes = R().pause) {
+  // Le temps de jeu est compté depuis le début de la séance (il ne repart pas de zéro quand on passe par le carnet
+  // ou le voyage) ; il repart de zéro après « Faire une pause », un long arrêt de l'appli ou un changement du réglage.
+  let debutSeance = null;     // heure (ms) du début de la séance
+  let prochainRappel = null;  // heure (ms) du prochain rappel
+  let pauseReglee = null;     // réglage (minutes) utilisé pour la séance en cours
+  let cacheeDepuis = null;
+  function nouvelleSeance() { debutSeance = null; prochainRappel = null; }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { cacheeDepuis = Date.now(); return; }
+    if (cacheeDepuis && Date.now() - cacheeDepuis > 10 * 60000) { nouvelleSeance(); if (moteur) programmerPause(); }
+    cacheeDepuis = null;
+  });
+
+  // delaiMin : rappel dans ce nombre de minutes (repousser) ; sinon selon le réglage depuis le début de la séance
+  function programmerPause(delaiMin) {
     clearTimeout(minuteurPause);
-    if (!minutes) return;
+    const reglage = R().pause;
+    if (!reglage) { nouvelleSeance(); return; }
+    const maintenant = Date.now();
+    if (debutSeance === null || pauseReglee !== reglage) { debutSeance = maintenant; prochainRappel = null; pauseReglee = reglage; }
+    if (delaiMin !== undefined) prochainRappel = maintenant + delaiMin * 60000;
+    else if (prochainRappel === null) prochainRappel = debutSeance + reglage * 60000;
     minuteurPause = setTimeout(() => {
       // jamais au milieu d'un problème, d'un dialogue ou d'une fenêtre : on repousse un peu
       if (document.getElementById('resolution') || dialogueOuvert || chaine || document.querySelector('.modal-fond')) { programmerPause(1); return; }
       if (moteur) moteur.bloquer(true);
+      const minutes = Math.max(1, Math.round((Date.now() - debutSeance) / 60000));
       UI.modal({
         titre: 'Une petite pause ?',
         contenu: [h('div', { class: 'portrait-modal', html: portraitAlvin('normal') }),
-          h('p', null, `Tu joues depuis ${minutes} minutes, bravo ! Alvin propose de se dégourdir les pattes. Ta progression est sauvegardée.`)],
+          h('p', null, `Tu joues depuis ${minutes} minute${minutes > 1 ? 's' : ''}, bravo ! Alvin propose de se dégourdir les pattes. Ta progression est sauvegardée.`)],
         boutons: [
           { label: 'Encore 10 minutes', classe: 'secondaire', action: () => { if (moteur) moteur.bloquer(false); programmerPause(10); } },
-          { label: 'Faire une pause', classe: 'principal', action: () => quitterVers(Ecrans.titre) },
+          { label: 'Faire une pause', classe: 'principal', action: () => { nouvelleSeance(); quitterVers(Ecrans.titre); } },
         ],
         fermable: false,
       });
       if (R().alvinParle) Voix.dire('Tu joues depuis un moment, bravo ! On fait une petite pause ?');
-    }, minutes * 60000);
+    }, Math.max(0, prochainRappel - maintenant));
   }
 
   return {
