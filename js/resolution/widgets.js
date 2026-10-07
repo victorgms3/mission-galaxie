@@ -157,6 +157,20 @@ const Widgets = (() => {
   // ---------------------------------------------------------------------------
   const NOMS_COL = ['unités', 'dizaines', 'centaines', 'milliers', 'dizaines de mille', 'centaines de mille'];
   const LETTRES = ['u', 'd', 'c', 'm', 'dm', 'cm'];
+  const UNITE_COL = ['unité', 'dizaine', 'centaine', 'millier', 'dizaine de mille', 'centaine de mille'];
+
+  // Soustraction par compensation : colonnes (0 = unités) qui reçoivent 10 en haut (la colonne j + 1 reçoit alors 1 en bas)
+  function colonnesCompensees(H, B) {
+    const chiffre = (s, j) => (j < s.length ? +s[s.length - 1 - j] : 0);
+    const res = new Set();
+    let ret = 0;
+    for (let j = 0; j < H.length; j++) {
+      const bas = chiffre(B, j) + ret;
+      ret = chiffre(H, j) < bas ? 1 : 0;
+      if (ret) res.add(j);
+    }
+    return res;
+  }
 
   function explicationsColonnes(signe, H, B, n, Rs) {
     const chiffre = (s, j) => (j < s.length ? +s[s.length - 1 - j] : null);
@@ -177,14 +191,19 @@ const Widgets = (() => {
           ret = s >= 10 ? Math.floor(s / 10) : 0;
         }
       } else if (signe === '−') {
-        const haut = a || 0, bas = b || 0;
-        const x = haut - bas - ret;
-        const debut = `Colonne des ${nom} : ${haut}${b != null ? ` − ${bas}` : ''}${ret ? ' − 1 de retenue' : ''}`;
-        if (x < 0) {
-          t = `${debut}, ce n'est pas possible : je prends une retenue. ${haut + 10}${b != null ? ` − ${bas}` : ''}${ret ? ' − 1' : ''} = ${x + 10}. J'écris ${x + 10}.`;
+        // Méthode par compensation (celle apprise en classe) : quand le chiffre du haut est trop petit,
+        // on ajoute 10 en haut (petit « 1 » devant le chiffre) et 1 en bas, dans la colonne suivante.
+        const bas0 = b || 0;
+        const bas = bas0 + ret;
+        const ajout = ret ? `J'ajoute 1 ${UNITE_COL[j] || 'rang'} en bas : ${bas0} + 1 = ${bas}. ` : '';
+        if (a == null) t = `Colonne des ${nom} : il n'y a rien à écrire.`;
+        else if (b == null && !ret) t = `Colonne des ${nom} : il n'y a rien à enlever.` + (a === 0 && j >= Rs.length ? " C'est un 0 tout à gauche : je n'écris rien." : ` J'écris ${a}.`);
+        else if (a < bas) {
+          t = `Colonne des ${nom} : ${ajout}${a} − ${bas}, c'est impossible : j'ajoute 10 en haut, ${a + 10} − ${bas} = ${a + 10 - bas}. J'écris ${a + 10 - bas}.`;
           ret = 1;
         } else {
-          t = `${debut} = ${x}.` + (x === 0 && j >= Rs.length ? " Je n'écris rien." : ` J'écris ${x}.`);
+          const x = a - bas;
+          t = `Colonne des ${nom} : ${ajout}${a} − ${bas} = ${x}.` + (x === 0 && j >= Rs.length ? " C'est un 0 tout à gauche : je n'écris rien." : ` J'écris ${x}.`);
           ret = 0;
         }
       } else {
@@ -217,11 +236,14 @@ const Widgets = (() => {
     // Noms des colonnes (u, d, c, m)
     grille.append(vide());
     for (let i = 0; i < n; i++) grille.append(h('span', { class: 'pose-entete col-' + (n - 1 - i) }, LETTRES[n - 1 - i]));
-    // Retenues (au-dessus du premier nombre)
+    // Retenues (au-dessus du premier nombre) : addition et multiplication seulement.
+    // La soustraction se fait par compensation : on touche un chiffre du haut pour écrire le « 1 » (10 en haut)
+    // devant lui, et un chiffre du bas pour écrire le « +1 » (1 en bas) sous lui.
     let cibleRetenue = null;
     const retenues = [];
-    grille.append(vide());
-    for (let i = 0; i < n; i++) {
+    const compense = signe === '−';
+    if (!compense) grille.append(vide());
+    for (let i = 0; i < n && !compense; i++) {
       if (i === n - 1) { grille.append(vide()); continue; }
       const r = h('button', { class: 'pose-retenue', type: 'button', 'aria-label': 'Retenue sur les ' + NOMS_COL[n - 1 - i] });
       r.addEventListener('click', () => {
@@ -237,9 +259,32 @@ const Widgets = (() => {
     }
     // Les deux nombres
     grille.append(vide());
-    for (const ch of H.padStart(n, ' ')) grille.append(h('span', { class: 'pose-chiffre' }, ch.trim()));
+    const marquesDix = {}, marquesUn = {};   // rang de colonne → petite marque « 1 » (haut) ou « +1 » (bas)
+    const basculer = (m, texte) => () => {
+      if (verrou()) return;
+      clic();
+      m.textContent = m.textContent ? '' : texte;
+      m.classList.remove('corrige');
+    };
+    [...H.padStart(n, ' ')].forEach((ch, i) => {
+      const j = n - 1 - i;
+      if (!compense || j === n - 1 || !ch.trim()) { grille.append(h('span', { class: 'pose-chiffre' }, ch.trim())); return; }
+      const m = h('span', { class: 'pose-marque-dix', 'aria-hidden': 'true' });
+      marquesDix[j] = m;
+      grille.append(h('button', {
+        class: 'pose-chiffre pose-touchable haut', type: 'button', 'aria-label': `Ajouter 10 aux ${NOMS_COL[j]} du haut`, onclick: basculer(m, '1'),
+      }, m, h('span', null, ch)));
+    });
     grille.append(h('span', { class: 'pose-signe' }, signe));
-    for (const ch of B.padStart(n, ' ')) grille.append(h('span', { class: 'pose-chiffre' }, ch.trim()));
+    [...B.padStart(n, ' ')].forEach((ch, i) => {
+      const j = n - 1 - i;
+      if (!compense || j === 0 || j >= H.length) { grille.append(h('span', { class: 'pose-chiffre' }, ch.trim())); return; }
+      const m = h('span', { class: 'pose-marque-un', 'aria-hidden': 'true' });
+      marquesUn[j] = m;
+      grille.append(h('button', {
+        class: 'pose-chiffre pose-touchable bas', type: 'button', 'aria-label': `Ajouter 1 aux ${NOMS_COL[j]} du bas`, onclick: basculer(m, '+1'),
+      }, h('span', null, ch.trim()), m));
+    });
     grille.append(h('span', { class: 'pose-trait', style: { gridColumn: `1 / span ${n + 1}` } }));
     // Résultat : saisie de droite à gauche
     grille.append(vide());
@@ -305,7 +350,9 @@ const Widgets = (() => {
       },
       indices() {
         return [
-          'Calcule colonne par colonne, en commençant par les unités, tout à droite.',
+          compense && explications.aRetenue
+            ? 'Calcule colonne par colonne, en commençant par les unités. Si le chiffre du haut est trop petit : 10 en haut, et 1 en bas dans la colonne suivante.'
+            : 'Calcule colonne par colonne, en commençant par les unités, tout à droite.',
           () => {
             const j = colonneAFaire();
             return j == null ? 'Ton calcul a l’air juste : appuie sur la coche verte !' : explications[j];
@@ -317,6 +364,12 @@ const Widgets = (() => {
         for (let i = n - 1; i >= 0; i--) if (differe(i)) { selectionner(i); break; }
       },
       corriger() {
+        // soustraction : on écrit aussi, en vert, le 10 en haut et le 1 en bas là où il les fallait
+        if (compense) {
+          const cols = colonnesCompensees(H, B);
+          for (const [j, m] of Object.entries(marquesDix)) { m.textContent = cols.has(+j) ? '1' : ''; m.classList.toggle('corrige', cols.has(+j)); }
+          for (const [j, m] of Object.entries(marquesUn)) { m.textContent = cols.has(+j - 1) ? '+1' : ''; m.classList.toggle('corrige', cols.has(+j - 1)); }
+        }
         cellules.forEach((c, i) => {
           c.classList.remove('faux', 'selection');
           if (differe(i)) { c.textContent = attendu[i].trim(); c.classList.add('corrige'); } else c.classList.add('juste');
@@ -363,8 +416,18 @@ const Widgets = (() => {
             petit <= 6 ? `${fmt(petit)} fois ${fmt(grand)}, c'est ${Array(petit).fill(fmt(grand)).join(' + ')}.` : `Compte de ${fmt(grand)} en ${fmt(grand)}, ${fmt(petit)} fois.`,
           ];
         }
-        if (signe === '+') return ['Tu peux compter dans ta tête ou sur tes doigts.', `Pars de ${fg} et avance de ${fd}.`];
-        return ['Tu peux compter dans ta tête ou sur tes doigts.', `Pars de ${fg} et recule de ${fd}. Ou bien : combien faut-il ajouter à ${fd} pour arriver à ${fg} ?`];
+        // de tête : on avance (ou recule) d'abord des dizaines, puis des unités
+        const etapes = (a, b, s) => {
+          const dz = b - (b % 10), u = b % 10, m = s === '+' ? a + dz : a - dz;
+          return `${fmt(a)} ${s} ${fmt(dz)} = ${fmt(m)}, puis ${fmt(m)} ${s} ${fmt(u)} = ?`;
+        };
+        if (signe === '+') {
+          const [a, b] = g >= d ? [g, d] : [d, g];
+          return ['Calcule dans ta tête : pars du plus grand nombre et avance.',
+            b >= 10 && b % 10 ? `D'abord les dizaines, puis les unités : ${etapes(a, b, '+')}` : `Pars de ${fmt(a)} et avance de ${fmt(b)}.`];
+        }
+        return ['Calcule dans ta tête : pars du grand nombre et recule.',
+          d >= 10 && d % 10 ? `D'abord les dizaines, puis les unités : ${etapes(g, d, '−')}` : `Pars de ${fg} et recule de ${fd}. Ou bien : combien faut-il ajouter à ${fd} pour arriver à ${fg} ?`];
       },
       marquer() { boite.classList.add('faux'); saisie = ''; maj(); },
       corriger() { boite.textContent = fmt(op.r); boite.className = 'res-boite-reponse corrige'; },
@@ -582,7 +645,12 @@ const Widgets = (() => {
       const unChiffre = v => v < 10;
       if (op.signe === '÷') widget = enLigne(op, { unite });
       else if (op.signe === '×') widget = (unChiffre(op.g) !== unChiffre(op.d)) ? pose(op, { verrou }) : enLigne(op, { unite });
-      else widget = Math.max(op.g, op.d) >= 10 ? pose(op, { verrou }) : enLigne(op, { unite });
+      else {
+        // + et − : on pose quand le calcul le mérite (deux nombres à 2 chiffres « pleins », ou un résultat ≥ 100) ;
+        // 10 + 7, 40 + 23 ou 56 − 4 se calculent de tête, en ligne.
+        const poser = Math.max(op.g, op.d, op.r) >= 100 || (Math.min(op.g, op.d) >= 10 && op.g % 10 !== 0 && op.d % 10 !== 0);
+        widget = poser ? pose(op, { verrou }) : enLigne(op, { unite });
+      }
       if (op.signe === '÷') {
         outils.push({ id: 'table', icone: 'livre', label: `La table de ${fmt(op.d)}`, creer: () => tableMultiplication(op.d, op.r) });
       } else if (op.signe === '×') {

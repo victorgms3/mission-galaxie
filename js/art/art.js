@@ -436,17 +436,41 @@ const Art = (() => {
       P.forme(cmdsTache(cx, by - T * 0.1, T * 0.2, T * 0.07, r, 6, 0.15), pal.vegetalFonce);
       return;
     }
-    // feuillu (et fruitier) : tronc + feuillage en deux tons
-    ombre(P, cx, by, T, 0.38, pal);
+    // feuillu (et fruitier) : tronc + feuillage en deux tons.
+    // Variété déterministe par case (pas de colonne d'arbres identiques en bordure de carte) :
+    // décalage, taille, silhouette (ronde, haute, double), teinte du vert, nombre de fruits, et parfois un buisson bas.
+    const variante = r();
+    cx += T * entre(r, -0.15, 0.15);
+    const teinte = Math.round(entre(r, -0.05, 0.05) * 100) / 100;
+    const nuance = c => (teinte >= 0 ? melange(c, '#ffffff', teinte) : fonce(c, -teinte));
+    const vg = nuance(pal.vegetal), vgF = nuance(pal.vegetalFonce);
+    if (variante < 0.16) {                                              // buisson bas
+      const kb = entre(r, 0.85, 1.1);
+      ombre(P, cx, by, T, 0.34 * kb, pal);
+      P.forme(cmdsTache(cx + T * 0.03, by - T * 0.24 * kb, T * 0.38 * kb, T * 0.25 * kb, r, 7, 0.12), vgF);
+      P.forme(cmdsTache(cx - T * 0.03, by - T * 0.29 * kb, T * 0.31 * kb, T * 0.2 * kb, r, 7, 0.12), vg);
+      P.cercle(cx - T * 0.13 * kb, by - T * 0.36 * kb, T * 0.06, pal.vegetalClair);
+      if (sorte === 'fruitier') for (const [ox, oy] of [[0.1, -0.3], [-0.06, -0.22]]) P.cercle(cx + T * ox, by + T * oy * kb, T * 0.045, pal.accent);
+      return;
+    }
+    const kf = k * entre(r, 0.92, 1.04);
+    ombre(P, cx, by, T, 0.38 * kf, pal);
     P.boite(cx - T * 0.065, by - T * 0.46, T * 0.13, T * 0.4, T * 0.05, pal.tronc);
     P.boite(cx + T * 0.005, by - T * 0.46, T * 0.06, T * 0.4, [0, T * 0.05, T * 0.05, 0], pal.troncFonce);
-    const fx = cx + dx, fy = by - T * 0.8 * k, rf = T * 0.4 * k;
-    P.forme(cmdsTache(fx + T * 0.03, fy + T * 0.06, rf, rf * 0.86, r, 7, 0.1), pal.vegetalFonce);
-    P.forme(cmdsTache(fx - T * 0.02, fy - T * 0.02, rf * 0.88, rf * 0.76, r, 7, 0.1), pal.vegetal);
-    P.cercle(fx - rf * 0.36, fy - rf * 0.34, rf * 0.2, pal.vegetalClair);
-    P.cercle(fx - rf * 0.08, fy - rf * 0.5, rf * 0.11, pal.vegetalClair);
+    const haut = variante > 0.62 && variante < 0.84;                     // silhouette haute et étroite
+    const fx = cx + dx, fy = by - T * (haut ? 0.88 : 0.8) * kf, rf = T * 0.4 * kf;
+    const sx = haut ? 0.8 : 1, sy = haut ? 1.15 : 1;
+    if (variante >= 0.84) {                                              // silhouette double : un second bouquet sur le côté
+      const cote = r() < 0.5 ? -1 : 1;
+      P.forme(cmdsTache(fx + cote * rf * 0.62, fy + rf * 0.28, rf * 0.58, rf * 0.5, r, 6, 0.12), vgF);
+      P.forme(cmdsTache(fx + cote * rf * 0.56, fy + rf * 0.2, rf * 0.48, rf * 0.42, r, 6, 0.12), vg);
+    }
+    P.forme(cmdsTache(fx + T * 0.03, fy + T * 0.06, rf * sx, rf * 0.86 * sy, r, 7, 0.1), vgF);
+    P.forme(cmdsTache(fx - T * 0.02, fy - T * 0.02, rf * 0.88 * sx, rf * 0.76 * sy, r, 7, 0.1), vg);
+    P.cercle(fx - rf * 0.36 * sx, fy - rf * 0.34 * sy, rf * 0.2, pal.vegetalClair);
+    P.cercle(fx - rf * 0.08, fy - rf * 0.5 * sy, rf * 0.11, pal.vegetalClair);
     if (sorte === 'fruitier') {
-      const n = 3 + (r() * 3 | 0);
+      const n = (r() * 6 | 0);
       for (let i = 0; i < n; i++) {
         const a = r() * TAU, d = rf * entre(r, 0.25, 0.62), px = fx + Math.cos(a) * d, py = fy + Math.sin(a) * d * 0.8;
         P.cercle(px, py, T * 0.05, i % 3 === 2 ? pal.accent2 : pal.accent);
@@ -1180,6 +1204,83 @@ const Art = (() => {
     return P.fin();
   }
 
+  // Le panneau de bois de la carte, en portrait (dialogue du panneau)
+  function portraitPanneau(id) {
+    const P = crayonSvg();
+    panneau(P, 50, 96, 92, PALETTES[id] || PALETTES.plusmoins);
+    return P.fin();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Souvenirs des coffres (carnet) : un petit dessin plat par objet, viewBox 100 × 100
+  // ---------------------------------------------------------------------------
+  const SOUV_OMBRE = '<ellipse cx="50" cy="88" rx="26" ry="5" fill="rgba(45,42,50,0.12)"/>';
+  const etoilette = (x, y, R, c) => { const P = crayonSvg(); P.forme(etoileChemin(x, y, R, R * 0.38, -Math.PI / 2), c); return P.morceaux.join(''); };
+  const pomme = (c, cf) => `<path d="M50 34 C 36 24, 20 34, 22 54 C 24 74, 38 86, 50 80 C 62 86, 76 74, 78 54 C 80 34, 64 24, 50 34 Z" fill="${c}"/>
+    <path d="M62 36 C 74 40, 78 52, 76 62 C 72 76, 62 82, 54 80 C 64 72, 70 56, 62 36 Z" fill="${cf}"/>
+    <path d="M50 34 Q 52 24 56 18" fill="none" stroke="#9a6c43" stroke-width="4" stroke-linecap="round"/>
+    <path d="M54 24 Q 66 12 74 20 Q 64 30 54 24 Z" fill="#86b26b"/><ellipse cx="36" cy="46" rx="5" ry="8" fill="#ffffff" opacity=".55" transform="rotate(20 36 46)"/>`;
+  const SOUVENIRS = {
+    'pm-coquillage': `<path d="M50 80 L20 50 Q22 20 50 16 Q78 20 80 50 Z" fill="#f4b49a"/>
+      <g stroke="#dc8a6e" stroke-width="3.2" stroke-linecap="round"><path d="M50 78 L28 42"/><path d="M50 78 L38 26"/><path d="M50 78 L50 21"/><path d="M50 78 L62 26"/><path d="M50 78 L72 42"/></g>
+      <path d="M40 82 Q50 90 60 82 L56 74 L44 74 Z" fill="#e39a7e"/>`,
+    'pm-bille': `<circle cx="50" cy="52" r="28" fill="#4fbfbd"/><path d="M28 60 Q40 40 56 50 Q70 58 76 44" fill="none" stroke="#a6ded7" stroke-width="6" stroke-linecap="round"/>
+      <path d="M58 79 A28 28 0 0 0 78 52" fill="none" stroke="#3a9f9e" stroke-width="5"/><circle cx="40" cy="38" r="6" fill="#ffffff" opacity=".8"/>`,
+    'pm-cristal': `<path d="M50 14 L70 40 L60 84 L40 84 L30 40 Z" fill="#ef9f9a"/><path d="M50 14 L70 40 L60 84 L52 84 L56 40 Z" fill="#d77f7b"/>
+      <path d="M30 40 L50 46 L70 40" fill="none" stroke="#f8cdc8" stroke-width="3" stroke-linejoin="round"/><path d="M40 30 L36 40" stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity=".7"/>`,
+    'pm-sablier': `<path d="M32 22 L68 22 Q68 40 50 52 Q68 64 68 80 L32 80 Q32 64 50 52 Q32 40 32 22 Z" fill="#e6f3f3"/>
+      <path d="M38 34 L62 34 Q58 44 50 50 Q42 44 38 34 Z" fill="#e9b949"/><path d="M50 56 L50 66" stroke="#e9b949" stroke-width="3"/><path d="M36 80 Q42 66 50 66 Q58 66 64 80 Z" fill="#e9b949"/>
+      <rect x="26" y="14" width="48" height="9" rx="4" fill="#bb8b5d"/><rect x="26" y="79" width="48" height="9" rx="4" fill="#9a6c43"/>`,
+    'pq-ruban': `<path d="M50 50 Q30 26 20 34 Q14 46 30 54 Z" fill="#d9577f"/><path d="M50 50 Q70 26 80 34 Q86 46 70 54 Z" fill="#d9577f"/>
+      <path d="M46 54 L34 82 L42 80 L48 86 Z" fill="#b8456a"/><path d="M54 54 L66 82 L58 80 L52 86 Z" fill="#b8456a"/><circle cx="50" cy="51" r="8" fill="#f08aa6"/>`,
+    'pq-pomme': pomme('#86c2e6', '#6aa8d2'),
+    'ma-pomme': pomme('#e9b949', '#c7962a'),
+    'pq-boite': `<rect x="22" y="44" width="56" height="38" rx="6" fill="#8f7fc8"/><rect x="22" y="44" width="56" height="8" fill="#7060ab"/>
+      <path d="M22 44 L30 26 L82 26 L78 44 Z" fill="#a99be8"/><circle cx="50" cy="64" r="7" fill="#f2b84b"/>
+      <path d="M78 58 L88 58 L88 50" fill="none" stroke="#c7962a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M62 18 L62 6 L70 9" fill="none" stroke="#2d2a32" stroke-width="2.6" stroke-linecap="round"/><ellipse cx="59" cy="18" rx="4" ry="3" fill="#2d2a32"/>`,
+    'pq-bougie': `<rect x="38" y="36" width="24" height="48" rx="5" fill="#fbf7ef"/><g stroke="#f08aa6" stroke-width="5"><path d="M38 48 L62 42"/><path d="M38 62 L62 56"/><path d="M38 76 L62 70"/></g>
+      <path d="M50 34 L50 28" stroke="#6e6878" stroke-width="2.5" stroke-linecap="round"/><path d="M50 8 Q60 20 50 28 Q40 20 50 8 Z" fill="#ef7b5a"/><path d="M50 16 Q54 22 50 26 Q46 22 50 16 Z" fill="#e9b949"/>`,
+    'ma-piece': `<circle cx="50" cy="52" r="30" fill="#c7962a"/><circle cx="48" cy="50" r="30" fill="#e9b949"/><circle cx="48" cy="50" r="21" fill="none" stroke="#c7962a" stroke-width="3"/>`,
+    'ma-toupie': `<path d="M50 84 L22 50 Q50 34 78 50 Z" fill="#ef7b5a"/><path d="M50 84 L36 58 Q50 54 64 58 Z" fill="#e9b949"/><path d="M22 50 Q50 34 78 50 Q50 60 22 50 Z" fill="#f4a184"/>
+      <rect x="46" y="22" width="8" height="22" rx="4" fill="#9a6c43"/>`,
+    'ma-tirelire': `<path d="M50 12 C 66 24, 70 50, 66 78 L34 78 C 30 50, 34 24, 50 12 Z" fill="#ef7b5a"/>
+      <path d="M34 60 L20 82 L36 78 Z" fill="#cf5c3c"/><path d="M66 60 L80 82 L64 78 Z" fill="#cf5c3c"/><circle cx="50" cy="44" r="10" fill="#fbf7ef"/><circle cx="50" cy="44" r="6.5" fill="#8ecae6"/>
+      <rect x="42" y="22" width="16" height="4" rx="2" fill="#2d2a32" opacity=".6"/><ellipse cx="50" cy="80" rx="10" ry="4" fill="#cf5c3c"/>`,
+    'tt-sifflet': `<path d="M18 48 L56 48 Q78 48 78 64 Q78 80 60 80 Q46 80 44 66 L18 66 Z" fill="#d08b54"/><path d="M18 48 L56 48 L56 54 L18 54 Z" fill="#e3a676"/>
+      <circle cx="61" cy="64" r="7" fill="#a9693c"/><rect x="28" y="40" width="10" height="9" rx="2" fill="#a9693c"/><path d="M76 58 Q86 50 84 38" fill="none" stroke="#6e6878" stroke-width="3" stroke-linecap="round"/>`,
+    'tt-bobine': `<rect x="26" y="18" width="48" height="10" rx="4" fill="#c48d61"/><rect x="26" y="76" width="48" height="10" rx="4" fill="#9f6c45"/>
+      <rect x="32" y="28" width="36" height="9" fill="#ef7b5a"/><rect x="32" y="37" width="36" height="9" fill="#e9b949"/><rect x="32" y="46" width="36" height="10" fill="#6fa860"/>
+      <rect x="32" y="56" width="36" height="10" fill="#8ecae6"/><rect x="32" y="66" width="36" height="10" fill="#7b6ee6"/><path d="M68 70 Q84 74 82 88" fill="none" stroke="#7b6ee6" stroke-width="3" stroke-linecap="round"/>`,
+    'tt-patin': `<path d="M30 18 L54 18 L56 52 Q78 54 80 66 L80 72 L28 72 Z" fill="#e9b949"/><path d="M54 18 L56 52 Q78 54 80 66 L80 72 L60 72 Q62 56 50 50 Z" fill="#c7962a"/>
+      <g stroke="#fbf7ef" stroke-width="2.5" stroke-linecap="round"><path d="M44 30 L52 32"/><path d="M44 38 L52 40"/><path d="M44 46 L52 48"/></g>
+      <path d="M22 82 L84 82 Q88 82 86 78" fill="none" stroke="#8f97aa" stroke-width="4" stroke-linecap="round"/><path d="M36 72 L36 82 M70 72 L70 82" stroke="#8f97aa" stroke-width="4"/>`,
+    'tt-cle': `<circle cx="32" cy="50" r="16" fill="#e9b949"/><circle cx="32" cy="50" r="7" fill="#fbf7ef"/><rect x="44" y="45" width="40" height="10" rx="4" fill="#e9b949"/>
+      <rect x="66" y="55" width="7" height="12" rx="2" fill="#c7962a"/><rect x="77" y="55" width="7" height="9" rx="2" fill="#c7962a"/>`,
+  };
+  function souvenir(id) {
+    let dessin = SOUVENIRS[id];
+    if (id === 'ma-piece') dessin += etoilette(48, 50, 11, '#fbf7ef');
+    if (!dessin) {                                                     // repli : un petit cadeau
+      dessin = '<rect x="26" y="40" width="48" height="42" rx="6" fill="#ef7b5a"/><rect x="22" y="32" width="56" height="12" rx="5" fill="#cf5c3c"/><rect x="46" y="32" width="8" height="50" fill="#e9b949"/>';
+    }
+    return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${SOUV_OMBRE}${dessin}</svg>`;
+  }
+
+  // Pièce de fusée donnée par le chef : un aileron dans la couleur d'accent de la planète suivante
+  function pieceFusee(id) {
+    const pal = PALETTES[id] || PALETTES.plusmoins;
+    const ac = pal.accent || COMMUN.corail, acf = fonce(ac, 0.2), acc = clair(ac, 0.35);
+    return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${SOUV_OMBRE}
+      <path d="M64 10 Q14 36 20 86 L70 64 Z" fill="${ac}"/>
+      <path d="M64 10 L70 64 L60 69 Q56 38 64 10 Z" fill="${acf}"/>
+      <path d="M52 24 Q30 40 28 68" fill="none" stroke="${acc}" stroke-width="5" stroke-linecap="round"/>
+      <path d="M67 14 L73 64" stroke="#8f97aa" stroke-width="9" stroke-linecap="round"/>
+      <circle cx="68.5" cy="26" r="2.6" fill="#dfe3ea"/><circle cx="70.5" cy="42" r="2.6" fill="#dfe3ea"/><circle cx="72" cy="57" r="2.6" fill="#dfe3ea"/>
+      ${etoilette(82, 24, 8, COMMUN.or)}${etoilette(16, 30, 5, COMMUN.or)}</svg>`;
+  }
+
   return { PALETTES, dessinerSol, dessinerObjet, dessinerEntite, dessinerAlvin, dessinerCible, portraitAlvin, portraitPNJ, vignettePlanete,
+    portraitPanneau, souvenir, pieceFusee,
     outils: { hasard, melange, fonce, clair, crayonSvg, crayon, cmdsBoite, cmdsTache, etoileChemin, couleursAlvin: AL } };
 })();

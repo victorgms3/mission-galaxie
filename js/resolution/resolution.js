@@ -149,7 +149,7 @@ const Resolution = (() => {
     const n = Math.min(P.niveauIndice, dernier);
     if (P.niveauIndice <= dernier) { P.aides++; P.niveauIndice++; }
     const m = messages[n];
-    dit(typeof m === 'function' ? m() : m, { humeur: 'reflechit', indice: n < dernier });
+    dit(typeof m === 'function' ? m() : m, { humeur: 'normal', indice: n < dernier });
     if (n === dernier && aideFinale) aideFinale();
   }
 
@@ -336,11 +336,11 @@ const Resolution = (() => {
   function etapeLire() {
     const nom = P.pnj.nom || "L'habitant";
     ui.atelier.append(h('div', { class: 'res-centre' },
-      consigne('oreille', "Lis l'histoire ou écoute-la. Imagine-la dans ta tête, comme un petit film."),
+      consigne('oreille', "Lis ou écoute l'histoire"),
       h('div', { class: 'res-boutons colonne' },
         h('button', { class: 'btn secondaire grand', type: 'button', 'data-action': 'ecouter', onclick: () => ui.enonce.lire() }, ic('haut-parleur'), 'Écouter le problème'),
         h('button', { class: 'btn principal grand', type: 'button', 'data-action': 'compris', onclick: () => { if (typeof Voix !== 'undefined') Voix.stop(); son('clic'); etapeSuivante(); } }, ic('coche'), "J'ai compris l'histoire"))));
-    const message = `${nom} a besoin de toi ! Lis bien son problème. Tu peux l'écouter avec le haut-parleur.`;
+    const message = `${nom} a besoin de toi ! Lis son problème et imagine-le comme un petit film.`;
     const auto = R().alvinParle && R().lectureAuto;
     dit(message, { indice: false, parle: !auto });
     if (auto) ui.enonce.lire();
@@ -351,11 +351,10 @@ const Resolution = (() => {
     const E = ui.enonce;
     E.phrasesEls.forEach(p => p.classList.add('cliquable'));
     ui.atelier.append(h('div', { class: 'res-centre' },
-      consigne('question', 'Touche, dans le problème, la phrase qui pose la question.'),
-      h('div', { class: 'res-astuce' }, ic('ampoule', 22), h('span', null, 'Une question se termine par un point d’interrogation : ', h('b', { class: 'res-gros-signe' }, '?')))));
-    dit('Où est la question ? Touche la phrase qui pose la question.');
+      consigne('question', 'Touche la question')));
+    dit('Où est la question ? Touche-la dans le problème.');
     P.indice = () => donnerIndice([
-      "La question, c'est la phrase qui demande quelque chose. Elle se termine par un point d'interrogation.",
+      "Une question se termine par un point d'interrogation. Cherche le « ? ».",
       "Regarde la fin de chaque phrase. Laquelle se termine par un point d'interrogation ?",
     ], () => E.question().classList.add('res-clignote'));
     E.surTap = e => {
@@ -401,8 +400,8 @@ const Resolution = (() => {
     const besoin = new Set(def.utiles);
     E.donnees().forEach(d => { if (!d.classList.contains('trouvee') && !d.classList.contains('barree')) d.classList.add('cliquable'); });
     const plateau = plateauInfos([...P.trouvees]);
-    ui.atelier.append(consigne('loupe', 'Touche, dans le problème, les nombres qui servent à répondre à la question.'), plateau.el);
-    dit(intro + 'Quels nombres faut-il pour répondre à la question ? Touche-les dans le problème.');
+    ui.atelier.append(consigne('loupe', 'Touche les nombres utiles'), plateau.el);
+    dit(intro + 'Quels nombres servent à répondre ? Touche-les dans le problème.');
     const combien = n => (n <= 4 ? NOMBRES[n] : String(n));
 
     P.indice = () => donnerIndice([
@@ -460,13 +459,12 @@ const Resolution = (() => {
     const options = melange([{ t: e0.question, ok: true }, ...(e0.autresQuestions || []).map(t => ({ t, ok: false }))]);
     const liste = listeChoix(options, 'res-phrase-choix choix-plan', choisir);
     ui.atelier.append(
-      consigne('boussole', "Que faut-il chercher d'abord ?"),
+      consigne('boussole', "Que chercher d'abord ?"),
       rappel('La grande question', def.question),
-      h('p', { class: 'res-explication' }, 'Ce problème se résout en deux étapes. Pour répondre à la grande question, il manque un nombre : il faut le trouver d’abord.'),
       liste.el);
-    dit("Ce problème se fait en deux étapes ! Pour répondre à la grande question, il faut d'abord trouver autre chose. Que faut-il chercher d'abord ?");
+    dit("Ce problème a deux étapes ! Que faut-il chercher d'abord ?");
     P.indice = () => donnerIndice([
-      'Relis la grande question. Quel nombre te manque pour pouvoir y répondre ?',
+      'Pour répondre à la grande question, il te manque un nombre. Lequel faut-il trouver d’abord ?',
       `Il faut d'abord savoir : ${e0.question}`,
     ], () => { if (liste.bonne) liste.bonne.classList.add('res-clignote'); });
 
@@ -639,7 +637,7 @@ const Resolution = (() => {
     if (!S) { etapeSuivante(); return; }
     if (P.niveau >= 3 && !P.schemaForce) {
       ui.atelier.append(h('div', { class: 'res-centre' },
-        consigne('schema', 'Un schéma aide à bien comprendre le problème.'),
+        consigne('schema', 'Faire un schéma ?'),
         h('div', { class: 'res-boutons' },
           h('button', { class: 'btn principal grand', type: 'button', 'data-action': 'faire-schema', onclick: () => { son('clic'); construireSchema(); } }, ic('schema'), 'Je fais le schéma'),
           h('button', { class: 'btn secondaire grand', type: 'button', 'data-action': 'passer-schema', onclick: () => { son('clic'); P.schemaPasse = true; etapeSuivante(); } }, "J'ai compris, je passe"))));
@@ -669,11 +667,11 @@ const Resolution = (() => {
       brancherGlisser(c, { tap: () => selectionner(k), depot: slot => placer(k, slot) });
     }
     atelier.append(
-      consigne('schema', 'Range les nombres et le « ? » dans le schéma.'),
+      consigne('schema', 'Range les cartes'),
       sch.el,
-      h('p', { class: 'res-aide-geste' }, 'Fais glisser une carte dans une case, ou touche la carte puis la case.'),
+      h('p', { class: 'res-aide-geste' }, 'Glisse chaque carte dans une case.'),
       plateau);
-    dit(explicationSchema(S) + " Place les nombres et le point d'interrogation.");
+    dit('Place les nombres et le « ? » dans le schéma.');
 
     const premiereFausse = () => Object.keys(S.slots).find(s => placement[s] !== S.slots[s]);
     P.indice = () => donnerIndice([
@@ -906,7 +904,7 @@ const Resolution = (() => {
     } else {
       aide = P.schemaFait ? schemaRempli(et.schema) : plateauInfos(def.utiles).el;
     }
-    garnir(ui.atelier, consigne('plus', 'Quelle opération faut-il faire ?'), aide, boutons, ligne);
+    garnir(ui.atelier, consigne('plus', 'Choisis l’opération'), aide, boutons, ligne);
     if (P.deux) dit(e === 0 ? `Pour savoir « ${et.question} », quelle opération faut-il faire ?` : 'Maintenant, la grande question ! Quelle opération faut-il faire ?');
     else if (P.schemaFait) dit("Quelle opération faut-il faire ? Regarde ton schéma pour t'aider.");
     else dit(signes.length === 2 ? 'Quelle opération faut-il faire : une addition ou une soustraction ?' : 'Quelle opération faut-il faire ?');
@@ -992,13 +990,15 @@ const Resolution = (() => {
       if (i >= 0 && outilOuvert !== id) basculerOutil(outils[i], boutonsOutils[i]);
     }
 
-    const titre = w.type === 'pose' ? `Pose et calcule : ${expr}` : w.type === 'temps' ? 'Calcule, puis écris les heures et les minutes.' : 'Calcule.';
+    const titre = w.type === 'pose' ? `Pose et calcule : ${expr}` : w.type === 'temps' ? 'Calcule l’heure ou la durée' : 'Calcule';
     const sousTitre = P.deux ? rappel(`Étape ${e + 1}`, et.question, 'petite') : null;
     garnir(ui.atelier, consigne('calcul', titre), sousTitre,
       h('div', { class: 'res-calcul res-calcul-' + w.type }, w.el, clavier),
       zoneOutils, panneau);
     dit(w.type === 'pose'
-      ? "À toi de calculer ! Commence par les unités, tout à droite. Tu peux toucher les petites cases du haut pour noter tes retenues."
+      ? (op.signe !== '−' ? "À toi de calculer ! Commence par les unités, tout à droite. Tu peux toucher les petites cases du haut pour noter tes retenues."
+        : w.aRetenue ? 'À toi de calculer ! Commence par les unités. Si le chiffre du haut est trop petit, touche-le pour ajouter 10, puis touche le chiffre du bas de la colonne suivante pour ajouter 1.'
+          : 'À toi de calculer ! Commence par les unités, tout à droite.')
       : w.type === 'temps' ? 'À toi de calculer ! Écris les heures, puis touche la case des minutes.' : 'À toi de calculer !');
     const outilIndice = outils.find(o => o.id === 'horloge' || o.id === 'table');
     P.indice = () => donnerIndice(w.indices(), outilIndice ? () => ouvrirOutil(outilIndice.id) : null);
@@ -1033,7 +1033,7 @@ const Resolution = (() => {
         w.marquer();
         let m = diag ? `Presque ! Vérifie ${diag}.` : 'Presque ! Vérifie ton calcul.';
         // conseil seulement si le calcul a vraiment une retenue (sinon il pousserait à en inventer une)
-        if (w.type === 'pose' && op.signe !== '−' && w.aRetenue) m += " N'oublie pas les retenues !";
+        if (w.type === 'pose' && w.aRetenue) m += op.signe === '−' ? ' N’oublie pas : 10 en haut, et 1 en bas dans la colonne suivante !' : " N'oublie pas les retenues !";
         dit(m, { humeur: 'reflechit' });
       } else {
         P.verrou = true;
@@ -1054,11 +1054,11 @@ const Resolution = (() => {
     const liste = listeChoix(options, 'res-phrase-choix phrase-reponse', choisir);
     const unite = der.unite && der.op.formats.r === 'nombre' ? ' ' + der.unite : '';
     ui.atelier.append(
-      consigne('crayon', 'Quelle phrase répond à la question ?'),
+      consigne('crayon', 'Choisis la phrase réponse'),
       rappel('La question', def.question),
       h('p', { class: 'res-resultat' }, 'Ton résultat : ', h('b', null, F(der.op.r, der.op.formats.r) + unite)),
       liste.el);
-    dit('Quelle phrase répond à la question ? Tu peux écouter chaque phrase avec le haut-parleur.');
+    dit('Quelle phrase répond à la question ?');
     P.indice = () => donnerIndice([
       'Relis la question : ' + def.question,
       'Cherche la phrase qui parle de la même chose que la question.',

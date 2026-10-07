@@ -76,7 +76,8 @@ const Jeu = (() => {
     majHud();
     programmerPause();
 
-    if (premiereVisite) raconter(monde.arrivee, 'content', 12000);
+    // l'arrivée reste affichée jusqu'à la croix ou un toucher sur la carte (l'enfant lit lentement)
+    if (premiereVisite) raconter(monde.arrivee, 'content', 0);
     else raconter(conseil(), 'normal', 7000);
   }
 
@@ -109,7 +110,7 @@ const Jeu = (() => {
   function conseil() {
     const restants = monde.pnj.filter(p => zoneOuverte(p.zone) && faitsDe(p.id) < PAR_PNJ);
     if (etat.terminee) return 'Tous les habitants sont aidés ! Tu peux encore t’entraîner avec eux, ou prendre la fusée pour voyager.';
-    if (restants.length) return `Va voir les habitants avec un point d'exclamation : ${restants.slice(0, 3).map(p => p.nom).join(', ')}…`;
+    if (restants.length) return `Va voir les habitants avec un point d'exclamation : ${restants.slice(0, 3).map(p => p.nom).join(', ')}${restants.length > 3 ? '…' : '.'}`;
     return 'Continue à explorer : un nouveau passage va bientôt s’ouvrir !';
   }
 
@@ -177,6 +178,7 @@ const Jeu = (() => {
     // une lectrice de 8 ans lit lentement : au moins 2,5 s + 0,45 s par mot (45 mots ≈ 23 s).
     // Toucher la carte ferme la bulle de toute façon (surTouche).
     const mots = String(texte).split(/\s+/).filter(Boolean).length;
+    // duree = 0 : la bulle reste jusqu'à la croix ou un toucher (arrivée sur la planète, passage fermé)
     if (duree) minuteurBulle = setTimeout(fermerBulle, Math.max(duree, 2500 + mots * 450));
   }
   function fermerBulle() {
@@ -196,8 +198,10 @@ const Jeu = (() => {
       h('div', { class: 'dialogue-corps' },
         h('div', { class: 'dialogue-nom' }, h('b', null, nom), role && h('span', { class: 'dialogue-role' }, role)),
         h('p', { class: 'dialogue-texte' }, texte),
-        progres && h('div', { class: 'dialogue-progres', 'aria-label': `${progres.fait} problèmes sur ${progres.total}` },
-          Array.from({ length: progres.total }, (_, i) => h('span', { class: i < progres.fait ? 'fait' : '' }))),
+        progres && h('div', { class: 'dialogue-avancee' },
+          h('div', { class: 'dialogue-progres', 'aria-hidden': 'true' },
+            Array.from({ length: progres.total }, (_, i) => h('span', { class: i < progres.fait ? 'fait' : '', html: Ecrans.etoile() }))),
+          h('b', { class: 'dialogue-progres-texte' }, `${progres.fait} / ${progres.total} problèmes`)),
         h('div', { class: 'dialogue-boutons' }, boutons.map(b => h('button', {
           class: 'btn ' + (b.classe || 'secondaire'),
           onclick: () => { Sons.clic(); fermerDialogue(); if (b.action) b.action(); },
@@ -317,11 +321,26 @@ const Jeu = (() => {
       if (p.chef) {
         const suivante = planeteSuivante();
         if (suivante && !D.debloquees.includes(suivante.id)) D.debloquees.push(suivante.id);
-        suite.push(fin => pieceDeFusee(suivante, fin));
+        suite.push(fin => pieceDeFusee(suivante, fin, p));
       }
     }
 
-    if (Store.verifierPromotion(monde.notion)) {
+    const changementGrade = Store.verifierGrade(monde.notion);
+    if (changementGrade === 'descend') {
+      // rétrogradation douce : jamais une punition, Alvin propose de reprendre des problèmes plus petits
+      suite.push(fin => {
+        const grade = Store.grade(Store.niveau(monde.notion));
+        const texte = `Ces derniers problèmes étaient costauds ! On reprend des problèmes un peu plus petits pour bien s'entraîner. Tu redeviens ${grade}, et tu remonteras vite !`;
+        UI.modal({
+          titre: 'On s’entraîne encore !',
+          contenu: [h('div', { class: 'portrait-modal', html: portraitAlvin('normal') }), h('p', null, texte)],
+          boutons: [{ label: "D'accord !", classe: 'principal', action: fin }],
+          fermable: false,
+        });
+        if (R().alvinParle) Voix.dire(texte);
+      });
+    }
+    if (changementGrade === 'monte') {
       suite.push(fin => {
         Sons.victoire();
         const grade = Store.grade(Store.niveau(monde.notion));
@@ -362,7 +381,11 @@ const Jeu = (() => {
         Sons.victoire();
         UI.modal({
           titre: 'Planète sauvée !',
-          contenu: [h('div', { class: 'portrait-modal', html: portraitAlvin('content') }),
+          // la planète elle-même, entourée d'étoiles (et non plus le même portrait que la pièce de fusée)
+          contenu: [h('div', { class: 'planete-sauvee' },
+            h('div', { class: 'planete-sauvee-vignette', html: typeof Art !== 'undefined' && Art.vignettePlanete ? Art.vignettePlanete(monde.id) : '' }),
+            h('div', { class: 'planete-sauvee-alvin', html: portraitAlvin('content') }),
+            [0, 1, 2, 3, 4].map(i => h('span', { class: 'planete-sauvee-etoile e' + i, html: Ecrans.etoile() }))),
             h('p', null, `Tu as aidé tous les habitants de la ${monde.nom}. Ils peuvent encore te proposer des problèmes pour t'entraîner, et la fusée t'emmène vers d'autres planètes.`)],
           boutons: [{ label: 'Hourra !', classe: 'principal', action: fin }],
           fermable: false,
@@ -411,7 +434,7 @@ const Jeu = (() => {
   }
 
   // Le chef donne la pièce de fusée qui ouvre la route vers la planète suivante (déjà débloquée dans l'état)
-  function pieceDeFusee(suivante, fin) {
+  function pieceDeFusee(suivante, fin, chef = null) {
     const D = Store.data;
     Sons.victoire();
     if (!suivante) {
@@ -428,9 +451,13 @@ const Jeu = (() => {
     const texte = planetePrete(suivante)
       ? `Grâce à cette pièce, ma fusée peut voler jusqu'à la ${suivante.nom} ! Retourne à la fusée quand tu veux partir.`
       : `Grâce à cette pièce, ma fusée pourra voler jusqu'à la ${suivante.nom}. Ses habitants préparent encore leurs problèmes : elle ouvrira très bientôt !`;
+    // le chef (ou la cheffe) tend la pièce : un aileron dans la couleur de la planète suivante
+    const scene = h('div', { class: 'piece-scene' },
+      h('div', { class: 'piece-chef', html: chef ? portraitPNJ(chef) : portraitAlvin('content') }),
+      h('div', { class: 'piece-objet', html: typeof Art !== 'undefined' && Art.pieceFusee ? Art.pieceFusee(suivante.id) : '' }));
     UI.modal({
       titre: 'Une pièce pour la fusée !',
-      contenu: [h('div', { class: 'portrait-modal', html: portraitAlvin('content') }), h('p', null, texte)],
+      contenu: [scene, h('p', null, chef ? `${chef.nom} te donne une pièce de fusée. ${texte}` : texte)],
       boutons: [{ label: 'Génial !', classe: 'principal', action: fin }],
       fermable: false,
       classe: 'modal-piece',
@@ -443,6 +470,7 @@ const Jeu = (() => {
   // ---------------------------------------------------------------------------
   function coffre(c) {
     if (!c) return;
+    fermerBulle();
     if (etat.coffres.includes(c.id)) {
       raconter(`Ce coffre est déjà ouvert. Tu y as trouvé : ${c.souvenir.nom}.`, 'normal', 5000);
       return;
@@ -511,7 +539,7 @@ const Jeu = (() => {
   function panneau(p) {
     if (!p) return;
     dialogue({
-      portrait: typeof Icone !== 'undefined' ? Icone.svg('livre', 64) : '',
+      portrait: typeof Art !== 'undefined' && Art.portraitPanneau ? Art.portraitPanneau(monde.id) : '',
       nom: 'Panneau', texte: p.texte,
       boutons: [{ label: "D'accord", classe: 'principal' }],
     });
@@ -525,15 +553,16 @@ const Jeu = (() => {
     // pas de « Encore 8 problèmes » si le message vient déjà de dire « (8 problèmes) »
     const dejaDit = reste === z.requis && String(z.message || '').includes(`${z.requis} problème`);
     const encore = reste && !dejaDit ? ` Encore ${reste} problème${reste > 1 ? 's' : ''} à résoudre !` : '';
-    raconter((z.message || 'Ce passage est encore fermé.') + encore, 'reflechit', 9000);
+    raconter((z.message || 'Ce passage est encore fermé.') + encore, 'reflechit', 0);
   }
 
   function fusee() {
     const D = Store.data;
+    const chef = monde.pnj.find(p => p.chef);
     const autres = Mondes.liste().filter(m => D.debloquees.includes(m.id) && m.id !== monde.id);
     dialogue({
-      portrait: portraitAlvin('content'), nom: 'Alvin', role: 'ta fusée',
-      texte: autres.length ? 'Ma fusée est prête ! Tu veux voyager vers une autre planète ?' : "Ma fusée n'a pas encore de route ouverte. Aide le chef de cette planète pour obtenir une nouvelle pièce !",
+      portrait: portraitAlvin('content'), nom: 'Alvin', role: 'devant sa fusée',
+      texte: autres.length ? 'Ma fusée est prête ! Tu veux voyager vers une autre planète ?' : `Ma fusée n'a pas encore de route ouverte. Aide ${chef ? `${chef.nom}, ${chef.g === 'f' ? 'la cheffe' : 'le chef'} de cette planète,` : 'le chef de cette planète'} pour obtenir une nouvelle pièce !`,
       boutons: autres.length
         ? [{ label: 'Rester ici', classe: 'secondaire' }, { label: 'Voyager', classe: 'principal', icone: 'fusee', action: () => quitterVers(Ecrans.espace) }]
         : [{ label: "D'accord", classe: 'principal' }],

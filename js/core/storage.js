@@ -9,7 +9,7 @@ const Store = (() => {
     version: 2,
     profil: null, // { prenom, genre: 'f' | 'm', code, amis: [{ n, g }] }
     reglages: { alvinParle: true, lectureAuto: true, vitesse: 0.95, sons: true, voixNom: '', pause: 25 },
-    notions: Object.fromEntries(NOTIONS.map(n => [n, { niveau: 1, historique: [] }])),
+    notions: Object.fromEntries(NOTIONS.map(n => [n, { niveau: 1, historique: [], etoilesRecentes: [] }])),
     planetes: {}, // id -> état de la planète (voir planete())
     planeteActuelle: 'plusmoins',
     debloquees: ['plusmoins'],
@@ -100,26 +100,47 @@ const Store = (() => {
     if (D.journal.length > 800) D.journal.splice(0, D.journal.length - 800);
     const n = D.notions[res.notion];
     if (n) {
-      n.historique.push(res.etoiles >= 2 ? 1 : 0);
+      n.historique.push(S.reussi(res) ? 1 : 0);
       if (n.historique.length > 20) n.historique.shift();
+      // étoiles des derniers problèmes au grade actuel (pour la rétrogradation douce)
+      n.etoilesRecentes = [...(n.etoilesRecentes || []), res.etoiles].slice(-10);
     }
     D.etoiles += res.etoiles;
     if (res.planete) S.planete(res.planete).resolus++;
     S.sauver();
   };
 
-  // Promotion : 8 problèmes réussis sur les 10 derniers de la notion
-  S.verifierPromotion = notion => {
+  // Un problème « réussi » pour le grade : 3 étoiles, ou 2 étoiles sans erreur sur le choix de l'opération
+  S.reussi = res => res.etoiles >= 3 || (res.etoiles === 2 && !(res.erreurs && res.erreurs.operation > 0));
+
+  // Promotion : au moins 12 problèmes faits au grade actuel, dont 8 réussis sur les 10 derniers
+  S.PROMOTION = { faits: 12, sur: 10, reussis: 8 };
+  // Rétrogradation douce : 4 problèmes à 1 étoile sur les 6 derniers au grade actuel
+  S.RETRO = { sur: 6, faibles: 4 };
+
+  S.verifierPromotion = notion => S.verifierGrade(notion) === 'monte';
+
+  // Change le grade si besoin ; renvoie 'monte', 'descend' ou null
+  S.verifierGrade = notion => {
     const n = S.data.notions[notion];
-    if (!n || n.niveau >= 3) return false;
-    const recents = n.historique.slice(-10);
-    if (recents.length >= 10 && recents.reduce((a, b) => a + b, 0) >= 8) {
+    if (!n) return null;
+    const recents = n.historique.slice(-S.PROMOTION.sur);
+    if (n.niveau < 3 && n.historique.length >= S.PROMOTION.faits && recents.reduce((a, b) => a + b, 0) >= S.PROMOTION.reussis) {
       n.niveau++;
       n.historique = [];
+      n.etoilesRecentes = [];
       S.sauver();
-      return true;
+      return 'monte';
     }
-    return false;
+    const et = (n.etoilesRecentes || []).slice(-S.RETRO.sur);
+    if (n.niveau > 1 && et.length >= S.RETRO.sur && et.filter(e => e <= 1).length >= S.RETRO.faibles) {
+      n.niveau--;
+      n.historique = [];
+      n.etoilesRecentes = [];
+      S.sauver();
+      return 'descend';
+    }
+    return null;
   };
 
   return S;

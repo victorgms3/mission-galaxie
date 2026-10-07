@@ -763,7 +763,7 @@
         const vus = await traiterSuite(p, encore, aCote);
         const fin = instantane();
         const nouvelles = monde.zones.filter(z => !avant.zones.includes(z.id) && fin.zones.includes(z.id));
-        const promo = fin.niveau !== avant.niveau;
+        const promo = fin.niveau > avant.niveau, retro = fin.niveau < avant.niveau;
         const sauvee = fin.terminee && !avant.terminee;
         const attendu = [];
         if (aide) {
@@ -771,6 +771,7 @@
           if (aCote) attendu.push('(fermé en touchant à côté)');
           if (p.chef) attendu.push('fenêtre : Une pièce pour la fusée !');
         }
+        if (retro) attendu.push('fenêtre : On s’entraîne encore !');
         if (promo) attendu.push('fenêtre : Promotion !');
         for (const z of nouvelles) attendu.push(`passage : Un passage s'ouvre vers « ${z.nom} » ! De nouveaux habitants t'attendent.`);
         if (sauvee) attendu.push('fenêtre : Planète sauvée !');
@@ -790,7 +791,7 @@
             ap.resolus === z.requis && portes.every(c => c === '=' || c === ':') && marques.every(x => x === '!') && J().moteur.debug().portesOuvertes.includes(z.id),
             { resolus: ap.resolus, portes, marques });
         }
-        if (promo) st.promotions.push(`grade ${fin.niveau} après ${st.problemes} problèmes`);
+        if (promo || retro) st.promotions.push(`grade ${fin.niveau} après ${st.problemes} problèmes`);
         // HUD : objectif de la prochaine zone
         const prochaine = monde.zones.find(z => !fin.zones.includes(z.id));
         const obj = $('.hud-objectif');

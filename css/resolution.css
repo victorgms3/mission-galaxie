@@ -315,6 +315,20 @@
 .pose > .pose-retenue:not(:empty) { border-style: solid; border-color: var(--corail-clair); background: var(--corail-clair); }
 .pose > .pose-retenue.selection { border-style: solid; border-color: var(--corail); background: #fff; }
 .pose-chiffre, .pose-signe { font: 700 36px/1 var(--police); }
+/* Soustraction par compensation : on touche un chiffre pour écrire le petit « 1 » (10 en haut) ou « +1 » (1 en bas) */
+.pose > .pose-touchable {
+  position: relative; padding: 0; border: 0; border-radius: 12px; background: transparent; color: var(--encre); cursor: pointer;
+}
+.pose > .pose-touchable:active { background: var(--papier-2); }
+.pose-marque-dix, .pose-marque-un {
+  position: absolute; display: grid; place-items: center; border: 2px dashed var(--ligne); border-radius: 7px;
+  font: 700 17px/1 var(--police); color: var(--corail-fonce); pointer-events: none;
+}
+.pose-marque-dix { left: 0; top: 50%; width: 17px; height: 24px; transform: translateY(-62%); }
+.pose-marque-un { left: -3px; bottom: -4px; width: 28px; height: 20px; font-size: 15px; }
+.pose-marque-dix:not(:empty), .pose-marque-un:not(:empty) { border-color: transparent; background: var(--corail-clair); }
+.pose-marque-dix.corrige, .pose-marque-un.corrige { background: var(--sarcelle-claire); color: var(--sarcelle-fonce); }
+.pose > .pose-touchable.haut > span:last-child { padding-left: 12px; }
 .pose-signe { color: var(--lavande-fonce); }
 .pose > .pose-trait { width: auto; height: 4px; border-radius: 2px; background: var(--encre); }
 .pose > .pose-resultat {
@@ -475,6 +489,8 @@
 }
 /* Paysage (2 colonnes) : clavier un peu plus compact pour que l'aide ouverte (horloge, porte-monnaie) tienne sans défiler */
 @media (orientation: landscape) and (min-width: 861px) {
+  /* le titre de l'étape reste visible quand l'atelier défile (aide ouverte : table, porte-monnaie, horloge) */
+  .res-atelier > .res-consigne { position: sticky; top: -16px; z-index: 2; background: var(--blanc); margin: -16px -18px 0; padding: 14px 18px 8px; border-radius: var(--rayon) var(--rayon) 0 0; }
   #resolution .res-clavier { gap: 8px; }
   #resolution .res-clavier .touche { height: 56px; }
 }

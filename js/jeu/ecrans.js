@@ -98,9 +98,12 @@ const Ecrans = (() => {
     const D = Store.data;
     let planete = Mondes.get(D.planeteActuelle);
     if (!Jeu.planetePrete(planete)) planete = Mondes.liste().find(Jeu.planetePrete) || Mondes.liste()[0];
+    const vignette = id => h('span', { class: 'titre-planete titre-planete-' + id, 'aria-hidden': 'true', html: typeof Art !== 'undefined' && Art.vignettePlanete ? Art.vignettePlanete(id) : '' });
     UI.ecran('ecran-titre',
+      // décor fixe : ciel étoilé et deux planètes en partie hors cadre
+      h('div', { class: 'titre-decor', 'aria-hidden': 'true' }, decorEtoiles(14, 3), vignette('paquets'), vignette('marche')),
       h('div', { class: 'titre-contenu' },
-        portraitAlvin('content', 'portrait-titre'),
+        portraitAlvin('normal', 'portrait-titre'),
         h('h1', { class: 'titre-jeu' }, 'Mission Galaxie'),
         h('p', { class: 'titre-sous' }, `${Store.grade(Store.niveau(planete.notion))} ${D.profil.prenom}`),
         h('button', { class: 'btn principal grand', onclick: () => { Sons.clic(); Jeu.ouvrirPlanete(planete.id); } }, ic('lecture'), 'Jouer'),
@@ -118,7 +121,7 @@ const Ecrans = (() => {
     const prenom = Store.data.profil.prenom;
     const pages = [
       { humeur: 'content', texte: `Bonjour ${prenom} ! Je m'appelle Alvin. Je suis un chat astronaute, et je voyage de planète en planète.` },
-      { humeur: 'reflechit', texte: "Sur chaque planète vivent des habitants très gentils… qui ont plein de problèmes de maths à résoudre !" },
+      { humeur: 'content', texte: "Sur chaque planète vivent des habitants très gentils… qui ont plein de problèmes de maths à résoudre !" },
       { humeur: 'normal', texte: "Touche l'écran pour me faire marcher. Quand tu vois un point d'exclamation au-dessus d'un habitant, va lui parler : il a besoin d'aide." },
       { humeur: 'content', texte: "Chaque problème résolu ouvre de nouveaux chemins. Et quand tu aides le chef de la planète, ma fusée peut s'envoler vers la suivante. On y va ?" },
     ];
@@ -148,10 +151,36 @@ const Ecrans = (() => {
   // ---------------------------------------------------------------------------
   // Voyage entre les planètes
   // ---------------------------------------------------------------------------
+  // Une carte de l'espace : les planètes le long d'une route en pointillés, sur un ciel étoilé.
+  // Paysage : la route serpente de gauche à droite ; portrait : de haut en bas (positions en % de la scène).
+  function positionsRoute(n) {
+    const pts = (axe, travers) => Array.from({ length: n }, (_, i) => {
+      const a = (100 * (i + (axe === 'y' ? 0.42 : 0.5))) / n, t = i % 2 ? travers[1] : travers[0];   // en portrait, un peu plus haut : le nom tient sous la dernière planète
+      return axe === 'x' ? [a, t] : [t, a];
+    });
+    return { paysage: pts('x', [64, 32]), portrait: pts('y', [30, 70]) };
+  }
+  function cheminRoute(p, vertical) {
+    let d = `M${p[0][0]} ${p[0][1]}`;
+    for (let i = 1; i < p.length; i++) {
+      const [x0, y0] = p[i - 1], [x1, y1] = p[i];
+      // départ et arrivée à l'horizontale : la route ne traverse jamais le nom écrit sous une planète
+      d += vertical ? ` C${x0 + (x1 - x0) * 0.9} ${y0} ${x1 - (x1 - x0) * 0.9} ${y1} ${x1} ${y1}` : ` C${(x0 + x1) / 2} ${y0} ${(x0 + x1) / 2} ${y1} ${x1} ${y1}`;
+    }
+    return d;
+  }
+
   function espace() {
     const D = Store.data;
     const planetes = Mondes.liste();
-    const liste = h('div', { class: 'espace-planetes' });
+    const pos = positionsRoute(planetes.length);
+    const route = h('div', {
+      class: 'espace-route', 'aria-hidden': 'true',
+      html: '<svg viewBox="0 0 100 100" preserveAspectRatio="none">'
+        + `<path class="route-paysage" d="${cheminRoute(pos.paysage, false)}" vector-effect="non-scaling-stroke"/>`
+        + `<path class="route-portrait" d="${cheminRoute(pos.portrait, true)}" vector-effect="non-scaling-stroke"/></svg>`,
+    });
+    const liste = h('div', { class: 'espace-planetes' }, decorEtoiles(18, 7), route);
     planetes.forEach((m, i) => {
       const ouverte = D.debloquees.includes(m.id);
       const prete = Jeu.planetePrete(m);
@@ -160,6 +189,7 @@ const Ecrans = (() => {
       const ici = D.planeteActuelle === m.id;
       liste.append(h('button', {
         class: 'espace-planete' + (ouverte && prete ? '' : ' fermee') + (ici ? ' ici' : ''),
+        style: `--x:${pos.paysage[i][0]}%;--y:${pos.paysage[i][1]}%;--xp:${pos.portrait[i][0]}%;--yp:${pos.portrait[i][1]}%`,
         onclick: () => {
           Sons.clic();
           if (!prete) {
@@ -174,16 +204,38 @@ const Ecrans = (() => {
           voyager(m);
         },
       },
-        h('span', { class: 'espace-vignette', html: typeof Art !== 'undefined' && Art.vignettePlanete ? Art.vignettePlanete(m.id) : '' }),
+        h('span', { class: 'espace-astre' },
+          h('span', { class: 'espace-vignette', html: typeof Art !== 'undefined' && Art.vignettePlanete ? Art.vignettePlanete(m.id) : '' }),
+          !(ouverte && prete) && h('span', { class: 'espace-cadenas' }, ic('cadenas', 22)),
+          ici && h('span', { class: 'espace-alvin', html: typeof Art !== 'undefined' && Art.portraitAlvin ? Art.portraitAlvin('content') : '' })),
         h('span', { class: 'espace-nom' }, m.nom),
         h('span', { class: 'espace-detail' }, !prete ? 'Bientôt disponible' : ouverte ? `${aides} / ${m.pnj.length} habitants aidés` : 'Route fermée'),
-        !ouverte && h('span', { class: 'espace-cadenas' }, ic('cadenas', 20)),
         ici && h('span', { class: 'espace-ici' }, 'Tu es ici')));
     });
     UI.ecran('ecran-espace',
       entete('Voyager', () => Jeu.ouvrirPlanete(D.planeteActuelle)),
       h('p', { class: 'espace-intro' }, 'Choisis une planète. Les routes s’ouvrent quand tu aides le chef de chaque planète.'),
       liste);
+  }
+
+  // Petite étoile plate à 4 branches (SVG), couleur = currentColor
+  function etoile() {
+    return '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 1 Q11.3 8.7 19 10 Q11.3 11.3 10 19 Q8.7 11.3 1 10 Q8.7 8.7 10 1 Z" fill="currentColor"/></svg>';
+  }
+  // Ciel étoilé fixe (positions déterministes) : étoiles plates moutarde et papier, en % de la zone
+  function decorEtoiles(n, graine = 1) {
+    let a = graine * 9301 + 49297;
+    const r = () => { a = (a * 9301 + 49297) % 233280; return a / 233280; };
+    const ciel = h('div', { class: 'ciel', 'aria-hidden': 'true' });
+    for (let i = 0; i < n; i++) {
+      const taille = 8 + Math.round(r() * 12);
+      ciel.append(h('span', {
+        class: 'ciel-etoile' + (r() < 0.45 ? ' moutarde' : ''),
+        style: { left: (3 + r() * 94).toFixed(1) + '%', top: (3 + r() * 94).toFixed(1) + '%', width: taille + 'px', height: taille + 'px' },
+        html: etoile(),
+      }));
+    }
+    return ciel;
   }
 
   function voyager(m) {
@@ -223,9 +275,10 @@ const Ecrans = (() => {
         m.pnj.forEach(p => {
           const connu = D.carnet.includes(m.id + ':' + p.id);
           grille.append(h('div', { class: 'carnet-ami' + (connu ? '' : ' inconnu') },
-            h('div', { class: 'carnet-portrait', html: connu && typeof Art !== 'undefined' ? Art.portraitPNJ(p.apparence) : '' }, connu ? null : ic('question', 32)),
-            h('span', { class: 'carnet-nom' }, connu ? p.nom : '?'),
-            connu && h('span', { class: 'carnet-role' }, p.role)));
+            // portrait recadré autour de l'habitant ; inconnu : sa silhouette grise
+            h('div', { class: 'carnet-portrait', html: typeof Art !== 'undefined' ? Art.portraitPNJ(p.apparence).replace('viewBox="0 0 100 100"', 'viewBox="12 10 76 88"') : '' }),
+            h('span', { class: 'carnet-nom' }, connu ? p.nom : '???'),
+            h('span', { class: 'carnet-role' }, connu ? p.role : 'Pas encore rencontré')));
         });
         contenu.append(h('section', { class: 'carnet-section carte-papier' }, h('h2', null, m.nom), grille));
       }
@@ -236,7 +289,7 @@ const Ecrans = (() => {
         m.coffres.forEach(c => {
           const trouve = D.souvenirs.includes(c.souvenir.id);
           grille.append(h('div', { class: 'carnet-souvenir' + (trouve ? '' : ' inconnu') },
-            h('div', { class: 'carnet-portrait' }, ic(trouve ? 'coffre' : 'question', 36)),
+            h('div', { class: 'carnet-portrait', html: trouve && typeof Art !== 'undefined' && Art.souvenir ? Art.souvenir(c.souvenir.id) : '' }, trouve && typeof Art !== 'undefined' && Art.souvenir ? null : ic(trouve ? 'coffre' : 'question', 36)),
             h('span', { class: 'carnet-nom' }, trouve ? c.souvenir.nom : 'Coffre à trouver')));
         });
         contenu.append(h('section', { class: 'carnet-section carte-papier' }, h('h2', null, m.nom), grille));
@@ -246,13 +299,17 @@ const Ecrans = (() => {
       const liste = h('div', { class: 'carnet-grades' });
       for (const [id, n] of notionsJouables()) {
         const niveau = Store.niveau(id);
-        const recents = D.notions[id].historique.slice(-10).reduce((a, b) => a + b, 0);
+        const hist = D.notions[id].historique;
+        const recents = hist.slice(-Store.PROMOTION.sur).reduce((a, b) => a + b, 0);
+        const manque = Math.max(0, Store.PROMOTION.faits - hist.length);
         liste.append(h('div', { class: 'carnet-grade carte-papier' },
           h('div', { class: 'carnet-grade-titre' }, h('b', null, n.nom), h('span', null, n.detail)),
           h('div', { class: 'carnet-grade-etoiles' }, [1, 2, 3].map(k => ic(k <= niveau ? 'etoile' : 'etoile-vide', 22))),
           h('div', null, Store.grade(niveau)),
-          niveau < 3 && h('div', { class: 'barre-progres' }, h('span', { style: { width: Math.min(100, recents / 8 * 100) + '%' } })),
-          niveau < 3 && h('p', { class: 'petit' }, `Réussis 8 des 10 derniers problèmes pour devenir ${Store.grade(niveau + 1)}.`)));
+          niveau < 3 && h('div', { class: 'barre-progres' }, h('span', { style: { width: Math.min(100, Math.min(recents / Store.PROMOTION.reussis, hist.length / Store.PROMOTION.faits) * 100) + '%' } })),
+          niveau < 3 && h('p', { class: 'petit' }, manque
+            ? `Encore ${manque} problème${manque > 1 ? 's' : ''} au moins, et 8 réussis sur les 10 derniers, pour devenir ${Store.grade(niveau + 1)}.`
+            : `Réussis 8 des 10 derniers problèmes (3 étoiles, ou 2 avec la bonne opération) pour devenir ${Store.grade(niveau + 1)}.`)));
       }
       contenu.append(liste);
     }
@@ -353,12 +410,13 @@ const Ecrans = (() => {
           amis),
         h('section', { class: 'bloc carte-papier' },
           h('h2', null, 'Grades'),
-          h('p', { class: 'petit' }, "Chaque grade monte tout seul quand l'enfant réussit 8 des 10 derniers problèmes de la notion. Vous pouvez aussi le régler ici : 1 = nombres jusqu'à 100, 2 = jusqu'à 1 000, 3 = jusqu'à 10 000 avec problèmes pièges."),
+          h('p', { class: 'petit' }, "Chaque grade monte tout seul après au moins 12 problèmes au grade actuel, si l'enfant en réussit 8 des 10 derniers (3 étoiles, ou 2 étoiles sans se tromper d'opération). Il redescend doucement d'un cran si 4 des 6 derniers problèmes n'ont eu qu'une étoile. Vous pouvez aussi le régler ici : 1 = nombres jusqu'à 100, 2 = jusqu'à 1 000, 3 = jusqu'à 10 000 avec problèmes pièges."),
           notionsJouables().map(([id, n]) => h('div', { class: 'champ-bloc' },
             h('span', { class: 'champ-label' }, `${n.nom} (${n.detail})`),
             segmente([1, 2, 3].map(k => ({ v: k, label: String(k) })), Store.niveau(id), v => {
               D.notions[id].niveau = v;
               D.notions[id].historique = [];
+              D.notions[id].etoilesRecentes = [];
               Store.sauver();
             })))),
         h('section', { class: 'bloc carte-papier' },
@@ -444,5 +502,5 @@ const Ecrans = (() => {
     return h('div', { class: 'stat' }, h('span', { class: 'stat-val' }, String(valeur)), h('span', { class: 'stat-label' }, label));
   }
 
-  return { config, titre, histoire, espace, carnet, coach, demanderCode, NOTIONS, ic, segmente };
+  return { config, titre, histoire, espace, carnet, coach, demanderCode, NOTIONS, ic, segmente, etoile, decorEtoiles };
 })();

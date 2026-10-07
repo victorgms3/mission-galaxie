@@ -52,7 +52,7 @@ const Alvin = (() => {
   const boucheOuverte = cls => `<path${cls ? ` class="${cls}"` : ''} d="M89 130 Q100 149 111 130 Q100 134 89 130 Z" fill="#c4566e"/>`;
 
   function tete(h, dynamique) {
-    const regard = h === 'reflechit' ? [3, -4] : h === 'triste' ? [0, 3] : [0, 0];
+    const regard = h === 'reflechit' ? [4.5, -5] : h === 'triste' ? [0, 3] : [0, 0];
     let yeux, extras = '';
     if (dynamique) {
       yeux = `<g class="alv-yeux">${oeil(80, 105)}${oeil(120, 105)}</g>${yeuxContents('alv-yeux-contents')}`;
@@ -66,7 +66,9 @@ const Alvin = (() => {
         extras = `<path d="M90 137 Q100 129 110 137" fill="none" stroke="${C.rayure}" stroke-width="3" stroke-linecap="round"/>
       <g stroke="${C.rayure}" stroke-width="4.5" stroke-linecap="round"><path d="M70 90 L87 84"/><path d="M130 90 L113 84"/></g>`;
       } else if (h === 'reflechit') {
-        extras = `<path d="M92 133 Q101 130 109 134" fill="none" stroke="${C.rayure}" stroke-width="3" stroke-linecap="round"/>`;
+        // curieux, pas déçu : regard en haut sur le côté, un sourcil levé, petite bouche en coin qui remonte
+        extras = `<path d="M91 132 Q99 136 110 129" fill="none" stroke="${C.rayure}" stroke-width="3" stroke-linecap="round"/>
+      <g stroke="${C.rayure}" stroke-width="4.5" stroke-linecap="round" fill="none"><path d="M70 86 Q79 84 88 87"/><path d="M110 82 Q121 72 132 80"/></g>`;
       } else extras = bouche('');
     }
     return `

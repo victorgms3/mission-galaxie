@@ -98,14 +98,14 @@ const Problemes = (() => {
   const S = {
     // Additives : partie-tout (pt) et comparaison (cmp)
     CT: { niv: [1, 2, 3], forme: 'pt', slots: { tout: '?', p1: 'a', p2: 'b' }, gen: 'somme', map: v => ({ a: v.p, b: v.q, r: v.s }) },
-    CP: { niv: [2, 3], forme: 'pt', slots: { tout: 'a', p1: 'b', p2: '?' }, gen: 'somme', map: v => ({ a: v.s, b: v.p, r: v.q }) },
+    CP: { niv: [2, 3], niv1: true, forme: 'pt', slots: { tout: 'a', p1: 'b', p2: '?' }, gen: 'somme', map: v => ({ a: v.s, b: v.p, r: v.q }) },
     TG: { niv: [1, 2, 3], forme: 'pt', slots: { tout: '?', p1: 'a', p2: 'b' }, gen: 'somme', map: v => ({ a: v.p, b: v.q, r: v.s }) },
     TP: { niv: [1, 2, 3], forme: 'pt', slots: { tout: 'a', p1: 'b', p2: '?' }, gen: 'somme', map: v => ({ a: v.s, b: v.p, r: v.q }) },
     TTg: { niv: [2, 3], forme: 'pt', slots: { tout: 'b', p1: 'a', p2: '?' }, gen: 'somme', map: v => ({ a: v.p, b: v.s, r: v.q }) },
     TTp: { niv: [2, 3], forme: 'pt', slots: { tout: 'a', p1: '?', p2: 'b' }, gen: 'somme', map: v => ({ a: v.s, b: v.p, r: v.q }) },
     TIg: { niv: [3], forme: 'pt', slots: { tout: 'b', p1: '?', p2: 'a' }, gen: 'somme', map: v => ({ a: v.p, b: v.s, r: v.q }) },
     TIp: { niv: [3], forme: 'pt', slots: { tout: '?', p1: 'a', p2: 'b' }, gen: 'somme', map: v => ({ a: v.p, b: v.q, r: v.s }) },
-    CE: { niv: [2, 3], forme: 'cmp', slots: { grand: 'b', petit: 'a', ecart: '?' }, gen: 'somme', map: v => ({ a: v.p, b: v.s, r: v.q }) },
+    CE: { niv: [2, 3], niv1: true, forme: 'cmp', slots: { grand: 'b', petit: 'a', ecart: '?' }, gen: 'somme', map: v => ({ a: v.p, b: v.s, r: v.q }) },
     CPlus: { niv: [2, 3], forme: 'cmp', slots: { grand: '?', petit: 'a', ecart: 'b' }, gen: 'somme', map: v => ({ a: v.p, b: v.q, r: v.s }) },
     CMoins: { niv: [2, 3], forme: 'cmp', slots: { grand: 'a', petit: '?', ecart: 'b' }, gen: 'somme', map: v => ({ a: v.s, b: v.p, r: v.q }) },
     CInvP: { niv: [3], forme: 'cmp', slots: { grand: 'a', petit: '?', ecart: 'b' }, gen: 'somme', map: v => ({ a: v.s, b: v.p, r: v.q }) },
@@ -114,7 +114,7 @@ const Problemes = (() => {
     // Multiplicatives : groupes égaux (grp) et « fois plus » (fois)
     GT: { niv: [1, 2, 3], forme: 'grp', slots: { total: '?', nb: 'a', taille: 'b' }, gen: 'produit', map: v => ({ a: v.n, b: v.t, r: v.p }) },
     GP: { niv: [1, 2, 3], forme: 'grp', slots: { total: 'a', nb: 'b', taille: '?' }, gen: 'produit', map: v => ({ a: v.p, b: v.n, r: v.t }) },
-    GG: { niv: [2, 3], forme: 'grp', slots: { total: 'a', nb: '?', taille: 'b' }, gen: 'produit', map: v => ({ a: v.p, b: v.t, r: v.n }) },
+    GG: { niv: [2, 3], niv1: true, forme: 'grp', slots: { total: 'a', nb: '?', taille: 'b' }, gen: 'produit', map: v => ({ a: v.p, b: v.t, r: v.n }) },
     FP: { niv: [3], forme: 'fois', slots: { petit: 'a', fois: 'b', grand: '?' }, gen: 'produit', map: v => ({ a: v.t, b: v.n, r: v.p }), limites: { b: [2, 5] } },
 
     // Horaires : frise du temps (début + durée = fin)
@@ -206,8 +206,8 @@ const Problemes = (() => {
   // ---------------------------------------------------------------------------
   const PIEGES_COMMUNS = [
     { f: P => `${P.n} a {d|crayons} dans sa trousse.`, v: () => rnd(5, 19) },
-    { f: () => `La fusée d'Alvin a {d|hublots}.`, v: () => rnd(3, 12) },
-    { f: () => `Alvin a {d|moustaches}.`, v: () => rnd(12, 20) },
+    { f: () => `La fusée d'Alvin a {d|hublots}.`, v: () => 4 },          // faits fixes sur Alvin : l'histoire reste la même d'un problème à l'autre
+    { f: () => `Alvin a {d|moustaches}.`, v: () => 12 },
     { f: P => `Dans la classe ${P.de}, il y a {d|élèves}.`, v: () => rnd(19, 29), sansAlvin: true },
     { f: P => `${P.n} a {d|ans}.`, v: () => rnd(7, 11), sansAlvin: true },
     { f: () => `Il fait beau depuis {d|jours}.`, v: () => rnd(3, 15) },
@@ -257,7 +257,15 @@ const Problemes = (() => {
     }
   }
   function ajouterPieges(notion, liste) { PIEGES[notion].push(...liste); }
-  const niveauxDe = m => m.niveaux || S[m.structure].niv;
+  // niv1 : structure ouverte aussi au grade 1 (partie cherchée, comparaison, groupement), avec de petits nombres,
+  // pour les modèles sans grade imposé dont le contexte reste vraisemblable avec des nombres < 100 (pas de max > 2 000,
+  // ni de tirage propre borné par un max : ces modèles-là sont pensés pour les grades 2 et 3).
+  const PLAFOND_NIV1 = 50;
+  const niveauxDe = m => {
+    if (m.niveaux) return m.niveaux;
+    const st = S[m.structure];
+    return st.niv1 && (!m.max || (!m.nombres && m.max <= 2000)) ? [1, ...st.niv] : st.niv;
+  };
 
   // ---------------------------------------------------------------------------
   // Tirage des nombres + validation
@@ -308,7 +316,7 @@ const Problemes = (() => {
     for (let essai = 0; essai < 400; essai++) {
       let vals;
       if (modele.nombres) vals = { ...modele.nombres(niv, rnd, choix) };
-      else vals = st.map(GEN[st.gen](niv, modele.max || Infinity));
+      else vals = st.map(GEN[st.gen](niv, Math.min(modele.max || Infinity, st.niv1 && niv === 1 && st.gen === 'somme' ? PLAFOND_NIV1 : Infinity)));
       const v = calculerEtapes(modele, st, vals);
       if (valeursValides(modele, st, v, niv)) return v;
     }
