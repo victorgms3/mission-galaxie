@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Test — formats téléphone et tablette</title>
+  <!--
+    Affiche une page du projet dans des cadres (iframes) aux tailles exactes d'un téléphone ou d'une tablette,
+    côte à côte : Edge sans fenêtre impose une largeur minimale d'environ 500 px, on ne peut donc pas
+    capturer directement un écran de 360 ou 390 px de large.
+      ?page=<page du dossier tests, encodée>   ex. qa-regard.html%3Fecran%3Dcoach
+      &tailles=390x844,360x800,844x390         (défaut : ces trois formats de téléphone)
+    Exemple :
+      outils/tester.ps1 -Page "tests/telephone.html?page=qa-regard.html%3Fecran%3Dcoach" -Mode capture -Sortie tel.png -Largeur 1700 -Hauteur 950
+    Partie complète automatique au format téléphone (le rapport de tests/jeu.html est recopié dans « resultat ») :
+      outils/tester.ps1 -Page "tests/telephone.html?tailles=390x844&page=jeu.html%3Fauto%3D1" -Largeur 520 -Hauteur 980 -Attente 4000000
+  -->
+  <style>
+    html, body { margin: 0; background: #3a3d52; }
+    body { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; padding: 6px; font: 12px sans-serif; color: #fff; }
+    figure { margin: 0; }
+    figcaption { height: 16px; }
+    iframe { display: block; border: 0; background: #fff; }
+  </style>
+</head>
+<body>
+  <pre id="resultat" hidden>en cours…</pre>
+  <script>
+    'use strict';
+    // tests/jeu.html?auto=1 dans un cadre : son rapport est recopié ici (outils/tester.ps1 en mode dom le lit)
+    window.addEventListener('message', e => { if (e.data && e.data.rapportJeu) document.getElementById('resultat').textContent = e.data.rapportJeu; });
+    const prm = new URLSearchParams(location.search);
+    const page = prm.get('page') || 'qa-regard.html?ecran=titre';
+    const tailles = (prm.get('tailles') || '390x844,360x800,844x390').split(',');
+    for (const t of tailles) {
+      const [l, h] = t.split('x').map(Number);
+      const fig = document.createElement('figure');
+      const legende = document.createElement('figcaption');
+      legende.textContent = `${l} × ${h}`;
+      const cadre = document.createElement('iframe');
+      cadre.width = l;
+      cadre.height = h;
+      cadre.src = page;
+      fig.append(legende, cadre);
+      document.body.append(fig);
+    }
+  </script>
+</body>
+</html>

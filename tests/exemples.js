@@ -36,6 +36,50 @@ Problemes.ajouter('plusmoins', [
       fausses: [`${B.n} a {r} billes.`, `${A.n} et ${B.n} ont {r} billes en tout.`],
     }),
   },
+  // Question au début : variante d'introduction (phrasesDebut) + pièges du contexte (même unité : des billes)
+  {
+    id: 'ex-TG-debut', structure: 'TG', max: 99, themes: ['jeux'],
+    piegesContexte: [
+      { f: (A, B) => `${B.n} a {d|billes} dans sa poche.`, v: (niv, rnd) => rnd(3, 40) },
+      { f: A => `Le sac de billes ${A.de} peut contenir {d|billes}.`, v: (niv, rnd) => 10 * rnd(5, 9) },
+    ],
+    texte: A => ({
+      phrases: [`Ce matin, ${A.n} avait {a|billes}.`, `À la récré, ${A.il} gagne {b|billes}.`],
+      question: `Combien de billes ${A.n} a-t-${A.il} maintenant ?`,
+      phrasesDebut: [`Ce matin, ${A.il} avait {a|billes}.`, `À la récré, ${A.il} a gagné {b|billes}.`],
+      labels: { tout: 'maintenant', p1: 'ce matin', p2: 'gagnées' },
+      juste: `Maintenant, ${A.n} a {r} billes.`,
+      fausses: [`${A.n} a gagné {r} billes.`, `Ce matin, ${A.n} avait {r} billes.`],
+      unite: 'billes',
+    }),
+  },
+  // Type 'qui' : on calcule les billes de A (a + b), puis on compare avec celles de B (c, tirée par le moteur)
+  {
+    id: 'ex-qui', structure: 'CT', reponse: 'qui', max: 200, themes: ['jeux'],
+    texte: (A, B) => ({
+      phrases: [`${A.n} a {a|billes rouges} et {b|billes bleues}.`, `${B.n} a {c|billes}.`],
+      question: 'Qui a le plus de billes ?',
+      labels: { tout: `les billes ${A.de}`, p1: 'rouges', p2: 'bleues' },
+      candidats: [
+        { nom: A.n, k: 'r', phrase: `C'est ${A.n} qui a le plus de billes : {r} billes.` },
+        { nom: B.n, k: 'c', phrase: `C'est ${B.n} qui a le plus de billes : {c} billes.` },
+      ],
+      plus: true,
+      fausses: [`${A.n} et ${B.n} ont autant de billes.`],
+      unite: 'billes',
+    }),
+  },
+  // Type 'impossible' : le nombre de billes gagnées n'est pas donné
+  {
+    id: 'ex-impossible', structure: 'TG', reponse: 'impossible', max: 99, themes: ['jeux'],
+    texte: A => ({
+      phrases: [`${A.n} a {a|billes}.`, `À la récré, ${A.n} gagne des billes.`],
+      question: `Combien de billes ${A.n} a-t-${A.il} maintenant ?`,
+      labels: { tout: 'maintenant', p1: 'au début', p2: 'gagnées' },
+      manque: `On ne sait pas combien de billes ${A.n} gagne à la récré.`,
+      juste: 'On ne peut pas savoir : il manque le nombre de billes gagnées à la récré.',
+    }),
+  },
   {
     id: 'ex-CInvP', structure: 'CInvP', themes: ['jeux'],
     texte: (A, B) => ({
@@ -105,6 +149,20 @@ Problemes.ajouter('marche', [
       labels: { tout: 'le billet', p1: 'le prix', p2: 'la monnaie' },
       juste: `La marchande rend {r} € à ${A.n}.`,
       fausses: [`La fusée coûte {r} €.`, `${A.n} paie {r} €.`],
+      unite: '€',
+    }),
+  },
+  // Type 'ouinon' : on calcule l'argent de A (a + b), puis on le compare au prix du livre (c, dans la question)
+  {
+    id: 'ex-ouinon', structure: 'TG', reponse: 'ouinon', ouiSi: 'plus', max: 200, themes: ['librairie'],
+    texte: A => ({
+      phrases: [`${A.n} a {a|€} dans sa tirelire.`, `Pour son anniversaire, ${A.n} reçoit {b|€}.`],
+      question: `${A.n} a-t-${A.il} assez d'argent pour acheter un livre à {c|€} ?`,
+      labels: { tout: 'tout son argent', p1: 'la tirelire', p2: 'reçu' },
+      etiquettes: { r: `L'argent ${A.de}`, c: 'Le prix du livre' },
+      oui: `Oui, ${A.n} a assez d'argent : ${A.il} a {r} € et le livre coûte {c} €.`,
+      non: `Non, ${A.n} n'a pas assez d'argent : ${A.il} a {r} € et le livre coûte {c} €.`,
+      fausses: [`${A.n} reçoit {r} € pour son anniversaire.`],
       unite: '€',
     }),
   },

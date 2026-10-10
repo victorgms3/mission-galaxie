@@ -19,6 +19,7 @@
   const DE = parseInt(params.get('de') || '1', 10);
   const A = parseInt(params.get('a') || '999', 10);
   const TIRAGES = parseInt(params.get('tirages') || '2', 10);
+  const POSITION = params.get('position');   // fin | debut | milieu (sinon : les trois en alternance)
 
   // Deux contextes : prénoms ordinaires, puis prénoms à voyelle initiale (élisions « d'Inès », « qu'Adam »)
   const CONTEXTES = [
@@ -35,7 +36,7 @@
 
   function decrire(p) {
     const lignes = [];
-    lignes.push('  ÉNONCÉ : ' + p.oral.join(' '));
+    lignes.push(`  ÉNONCÉ (question : ${p.position}, réponse : ${p.typeReponse}) : ` + p.oral.join(' '));
     p.etapes.forEach((e, i) => {
       const o = e.op;
       const fmt = (v, f) => Problemes.formater(v, f || 'nombre');
@@ -44,7 +45,7 @@
       if (e.question) l += ` | sous-question : ${e.question} | autres : ${(e.autresQuestions || []).join(' / ')}`;
       lignes.push(l);
     });
-    lignes.push('  CARTES : ' + Object.entries(p.cartes).map(([k, v]) => `${k}=« ${v} »`).join(' ') + (p.distracteur ? ' (avec phrase piège)' : ''));
+    lignes.push('  CARTES : ' + Object.entries(p.cartes).map(([k, v]) => `${k}=« ${v} »`).join(' ') + (p.distracteurs.length ? `  (phrases pièges : ${p.distracteurs.join(', ')})` : ''));
     lignes.push('  ✔ ' + p.reponse.juste);
     p.reponse.fausses.forEach(f => lignes.push('  ✘ ' + f));
     return lignes.join('\n');
@@ -74,7 +75,7 @@
             const ctx = CONTEXTES[t % CONTEXTES.length];
             let p = null;
             try {
-              p = Problemes.instancier(m, notion, niv, ctx, { piege: t % 2 === 1 });
+              p = Problemes.instancier(m, notion, niv, ctx, { piege: t % 2 === 1 ? (niv > 1 ? 2 : 1) : 0, position: POSITION || ['fin', 'debut', 'milieu'][(t + niv) % 3] });
             } catch (e) {
               sortie.push(`-- grade ${niv} : EXCEPTION ${e.message}`);
               continue;

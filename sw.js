@@ -1,7 +1,7 @@
 /* Service worker : permet à Mission Galaxie de fonctionner sans connexion.
    La liste FICHIERS correspond exactement aux fichiers chargés par index.html (+ manifeste et icônes).
    Changer VERSION à chaque mise à jour pour que les tablettes rechargent les fichiers. */
-const VERSION = 'mission-galaxie-v2-7';
+const VERSION = 'mission-galaxie-v2-9';
 const FICHIERS = [
   './',
   'index.html',
@@ -23,6 +23,9 @@ const FICHIERS = [
   'js/problemes/banques/paquets-2.js',
   'js/problemes/banques/marche-1.js',
   'js/problemes/banques/marche-2.js',
+  'js/problemes/banques/plusmoins-3.js',
+  'js/problemes/banques/paquets-3.js',
+  'js/problemes/banques/marche-3.js',
   // vague 2 : 'js/problemes/banques/tictac-1.js', 'js/problemes/banques/tictac-2.js',
   //           'js/problemes/banques/defi-1.js', 'js/problemes/banques/defi-2.js',
   'js/monde/mondes.js',

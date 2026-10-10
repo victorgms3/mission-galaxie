@@ -141,6 +141,7 @@ const Jeu = (() => {
           h('span', { class: 'hud-etoiles carte-papier', 'aria-label': 'Étoiles' }, ic('etoile', 22), etoiles),
           h('button', { class: 'btn-rond hud-bouton', 'aria-label': 'Mon carnet', onclick: () => { Sons.clic(); quitterVers(() => Ecrans.carnet(() => ouvrirPlanete(monde.id))); } }, ic('livre')),
           h('button', { class: 'btn-rond hud-bouton', 'aria-label': 'Voyager', onclick: () => { Sons.clic(); quitterVers(Ecrans.espace); } }, ic('fusee')),
+          Ecrans.boutonVoix('hud-bouton'),
           h('button', { class: 'btn-rond hud-bouton', 'aria-label': 'Menu', onclick: () => { Sons.clic(); quitterVers(Ecrans.titre); } }, ic('maison')))),
       objectif,
       bulle);
@@ -265,40 +266,168 @@ const Jeu = (() => {
   // ---------------------------------------------------------------------------
   // Un problème
   // ---------------------------------------------------------------------------
+  // Type d'un problème (ou d'un modèle) : structure + type de réponse. Un habitant ne pose jamais deux fois le même
+  // type dans 4 problèmes de suite, et deux problèmes consécutifs de la planète ne sont jamais du même type.
+  const typeReponseDe = m => m.typeReponse || (Problemes.typeDe ? Problemes.typeDe(m) : 'nombre');
+  const signature = m => m.structure + '/' + typeReponseDe(m);
+  const estMotPiege = m => !!(Problemes.estMotPiege && Problemes.estMotPiege(m));
+  // Un problème qui oblige à lire : la question n'est pas à la fin, un mot-clé trompeur, ou une information manquante
+  const obligeALire = pb => pb.position !== 'fin' || estMotPiege(pb) || pb.typeReponse === 'impossible';
+
+  function choisirProbleme(p, niveau, aLire) {
+    const ctx = Store.contexte({ nom: p.nom, g: p.g });
+    const banque = Problemes.BANQUES[monde.notion] || [];
+    const interdites = new Set([...((etat.sigs || {})[p.id] || []), etat.derniereSig].filter(Boolean));
+    const idsInterdits = banque.filter(m => interdites.has(signature(m))).map(m => m.id);
+    const vus = etat.vus || [];
+    const base = { themes: p.themes, eviterStructure: etat.derniereStructure };
+    // Après un problème résolu « en devinant » : un nombre piège, la question au début si le modèle le permet,
+    // et au grade 1 une structure à mot-piège (« gagne » pour une soustraction…)
+    if (aLire) Object.assign(base, { piege: niveau >= 2 ? 2 : 1, position: 'debut' }, niveau === 1 ? { probaMotPiege: 1 } : {});
+    let repli = null;
+    // du plus exigeant au plus souple : jamais vu et d'un autre type, puis d'un autre type, puis n'importe lequel
+    const paliers = [
+      { exclure: new Set([...vus, ...idsInterdits]), autreType: true },
+      { exclure: new Set(idsInterdits), autreType: true },
+      { exclure: new Set(vus), autreType: false },
+    ];
+    for (const { exclure, autreType } of paliers) {
+      let bon = null;
+      for (let essai = 0; essai < (aLire ? 6 : 3); essai++) {
+        const pb = Problemes.tirer(monde.notion, niveau, ctx, { ...base, exclure });
+        if (!pb) continue;
+        repli = repli || pb;
+        if (autreType && interdites.has(signature(pb))) continue;
+        bon = bon || pb;
+        if (!aLire || obligeALire(pb)) return pb;
+      }
+      if (bon) return bon;
+    }
+    return repli;
+  }
+
   function lancerProbleme(p, libre = false) {
     const niveau = Store.niveau(monde.notion);
-    const probleme = Problemes.tirer(monde.notion, niveau, Store.contexte({ nom: p.nom, g: p.g }), {
-      exclure: new Set(etat.vus || []),
-      themes: p.themes,
-      eviterStructure: etat.derniereStructure,
-    });
+    etat.sigs = etat.sigs || {};
+    etat.aLire = etat.aLire || {};
+    const aLire = !!etat.aLire[p.id];
+    const probleme = choisirProbleme(p, niveau, aLire);
     if (!probleme) { UI.toast('Aucun problème disponible pour le moment.'); return; }
     if (moteur) moteur.bloquer(true);
     const gen = generation;
+    const lecture = suivreLecture(probleme);
     Resolution.lancer({
       probleme, niveau,
       pnj: { nom: p.nom, portrait: portraitPNJ(p) },
       surFin: res => {
+        const mesure = lecture.arreter();
         if (gen !== generation) return;
         if (moteur) moteur.bloquer(false);
         if (!res) { raconter(`${p.nom} t'attend quand tu veux !`, 'normal', 5000); return; }
         etat.vus = [...(etat.vus || []), probleme.id].slice(-200);
         etat.derniereStructure = probleme.structure;
+        etat.derniereSig = signature(probleme);
+        etat.sigs[p.id] = [...(etat.sigs[p.id] || []), signature(probleme)].slice(-(PAR_PNJ - 1));
         if (!libre) etat.pnj[p.id] = faitsDe(p.id) + 1;
-        Store.enregistrerProbleme({
+        const impossible = probleme.typeReponse === 'impossible';
+        const entree = {
           date: Date.now(), notion: monde.notion, planete: monde.id, pnj: p.id,
           id: probleme.id, structure: probleme.structure, niveau,
+          typeReponse: probleme.typeReponse || 'nombre', position: probleme.position || 'fin',
+          pieges: (probleme.distracteurs || []).length, motPiege: estMotPiege(probleme),
           erreurs: res.erreurs, aides: res.aides, etoiles: res.etoiles,
-        });
-        apresProbleme(p, res, libre);
+          lecture: {
+            ms: mesure.ms, mots: mesure.mots, seuil: mesure.seuil, rapide: mesure.rapide, ecoutes: mesure.ecoutes,
+            piegeTouche: mesure.piegeTouche,
+            opMotPiege: estMotPiege(probleme) && !!(res.erreurs && res.erreurs.operation > 0),
+            manqueNonVu: impossible && (mesure.manqueAide || !!(res.erreurs && res.erreurs.infos > 0)),
+            forcee: aLire,
+          },
+        };
+        Store.enregistrerProbleme(entree);
+        const devine = Store.devine(entree);
+        // le prochain problème de cet habitant obligera à lire ; un problème bien lu lève l'obligation
+        if (devine) etat.aLire[p.id] = true;
+        else delete etat.aLire[p.id];
+        apresProbleme(p, res, libre, devine ? entree.lecture : null);
       },
     });
+    if (gen !== generation) return;
+    // interrupteur « assistant vocal » dans la barre du haut du panneau
+    const haut = document.querySelector('#resolution .res-haut');
+    if (haut && !haut.querySelector('.btn-voix')) haut.append(Ecrans.boutonVoix('res-voix'));
+  }
+
+  // ---------------------------------------------------------------------------
+  // « Lit-elle vraiment ? » : mesures pendant la résolution
+  // Temps entre l'ouverture du problème et le premier geste de réponse (toucher une phrase à l'étape « La question »,
+  // un nombre à l'étape « Les infos », ou « Il manque une information ! »). Trop rapide pour avoir lu
+  // (moins de MS_PAR_MOT par mot, et au moins MS_MIN) : Alvin propose gentiment de relire ou de réécouter,
+  // et ce premier geste est ignoré. Le panneau de résolution n'est pas modifié : tout passe par les clics.
+  // ---------------------------------------------------------------------------
+  const MS_PAR_MOT = 150;
+  const MS_MIN = 2000;
+  function suivreLecture(probleme) {
+    const texte = (probleme.oral || []).join(' ');
+    const mots = texte.split(/\s+/).filter(Boolean).length;
+    const pieges = probleme.distracteurs || (probleme.distracteur ? [probleme.distracteur] : []);
+    const impossible = probleme.typeReponse === 'impossible';
+    const m = { debut: Date.now(), ms: null, mots, seuil: Math.max(MS_MIN, mots * MS_PAR_MOT), rapide: false, ecoutes: 0, piegeTouche: false, manqueAide: false };
+    let fini = false;
+    function surClic(e) {
+      const racine = document.getElementById('resolution');
+      if (fini || !racine || !(e.target instanceof Element) || !racine.contains(e.target)) return;
+      if (e.target.closest('.res-ecouter, [data-action="ecouter"]')) { m.ecoutes++; return; }
+      const cible = e.target.closest('.res-enonce-texte .phrase.cliquable, .res-enonce-texte .donnee.cliquable, [data-action="manque"]');
+      if (!cible) return;
+      if (m.ms === null) {
+        m.ms = Date.now() - m.debut;
+        if (m.ms < m.seuil) {
+          m.rapide = true;
+          e.stopPropagation();
+          e.preventDefault();
+          proposerRelire(racine);
+          return;
+        }
+      }
+      if (cible.matches('.donnee') && pieges.includes(cible.dataset.k)) m.piegeTouche = true;
+      if (impossible && cible.matches('[data-action="manque"]') && cible.classList.contains('res-clignote')) m.manqueAide = true;
+    }
+    document.addEventListener('click', surClic, true);
+    return {
+      mesure: m,
+      arreter() { fini = true; document.removeEventListener('click', surClic, true); return m; },
+    };
+  }
+
+  // Alvin, dans le panneau de résolution : « Tu vas très vite ! » (réécouter l'histoire ou la relire)
+  function proposerRelire(racine) {
+    if (racine.querySelector('.relire-fond')) return;
+    const texte = 'Oh là, tu vas très vite ! As-tu lu toute l’histoire jusqu’au bout ? Les habitants cachent parfois des pièges dans leurs problèmes.';
+    const fermer = () => fond.remove();
+    const fond = h('div', { class: 'relire-fond' },
+      h('div', { class: 'relire carte-papier', role: 'alertdialog', 'aria-label': 'Conseil d’Alvin' },
+        h('div', { class: 'relire-portrait', html: portraitAlvin('reflechit') }),
+        h('div', { class: 'relire-corps' },
+          h('p', { class: 'relire-texte' }, texte),
+          h('div', { class: 'relire-boutons' },
+            h('button', {
+              class: 'btn secondaire', type: 'button', 'data-action': 'relire-ecouter',
+              onclick: () => { Sons.clic(); fermer(); const b = racine.querySelector('.res-ecouter'); if (b) b.click(); },
+            }, ic('haut-parleur', 22), 'Écouter l’histoire'),
+            h('button', {
+              class: 'btn principal', type: 'button', 'data-action': 'relire',
+              onclick: () => { Sons.clic(); fermer(); Voix.stop(); const e = racine.querySelector('.res-enonce'); if (e) e.scrollIntoView({ block: 'nearest' }); },
+            }, ic('livre', 22), 'Je relis')))));
+    racine.append(fond);
+    if (R().alvinParle) Voix.dire(texte);
   }
 
   // Après un problème : l'état est mis à jour tout de suite (rien ne se perd si l'enfant quitte),
   // puis on montre dans l'ordre : remerciements et pièce de fusée, promotion, passages qui s'ouvrent,
   // planète sauvée, et enfin « on continue ? » (le problème suivant ne démarre qu'après tout cela).
-  function apresProbleme(p, res, libre) {
+  // devine : mesures de lecture si le problème a été résolu « en devinant » (sinon null)
+  function apresProbleme(p, res, libre, devine = null) {
     const D = Store.data;
     if (moteur) moteur.texteFlottant(p.x, p.y - 1, `+${res.etoiles} ★`, '#c7962a');
     majHud();
@@ -397,9 +526,15 @@ const Jeu = (() => {
     if (!aide) {
       suite.push(fin => dialogue({
         portrait: portraitPNJ(p), nom: p.nom, role: p.role,
-        texte: libre
-          ? 'Merci ! Tu veux encore t’entraîner avec moi ?'
-          : choix(['Bravo, c’est exactement ça ! Tu en fais un autre ?', 'Merci beaucoup ! J’ai encore un problème, tu veux bien ?', 'Génial ! On continue ?']),
+        // problème résolu « en devinant » : l'habitant prévient gentiment que le suivant cache un piège
+        texte: devine
+          ? choix([
+            'Merci ! Attention, mon prochain problème cache un piège : lis-le bien jusqu’au bout, ou écoute-le, avant de répondre. On continue ?',
+            'Bravo ! Mon problème suivant est plein de surprises : prends le temps de bien lire toute l’histoire. Tu en fais un autre ?',
+          ])
+          : libre
+            ? 'Merci ! Tu veux encore t’entraîner avec moi ?'
+            : choix(['Bravo, c’est exactement ça ! Tu en fais un autre ?', 'Merci beaucoup ! J’ai encore un problème, tu veux bien ?', 'Génial ! On continue ?']),
         progres: libre ? null : { fait, total: PAR_PNJ },
         boutons: [
           { label: 'Plus tard', classe: 'secondaire', action: fin },

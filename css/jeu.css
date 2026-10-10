@@ -245,11 +245,164 @@ input, select { -webkit-user-select: text; user-select: text; }
 .code-points span.plein { background: var(--lavande); }
 .modal-code .clavier { margin: 0 auto; }
 
+/* ---------- Interrupteur « assistant vocal » (HUD et panneau de résolution) ---------- */
+/* Coupé : haut-parleur grisé et barré d'un trait rouge */
+.btn-voix { position: relative; }
+.btn-voix.coupee { --fond: var(--papier-2); --texte: var(--encre-douce); --bord: var(--ligne-fonce); }
+.hud-bouton.btn-voix.coupee { background: var(--papier-2); color: var(--encre-douce); }
+.btn-voix.coupee::after {
+  content: ''; position: absolute; left: 50%; top: 50%; width: 58%; height: 4px; border-radius: 2px;
+  background: var(--rouge); box-shadow: 0 0 0 2px var(--papier); transform: translate(-50%, -50%) rotate(-45deg); pointer-events: none;
+}
+.res-voix { width: 52px; height: 52px; }
+
+/* ---------- « Tu vas très vite ! » : Alvin propose de relire (dans le panneau de résolution) ---------- */
+.relire-fond {
+  position: absolute; inset: 0; z-index: 12; display: grid; place-items: end center; padding: 16px;
+  background: rgba(35, 38, 58, .35); animation: fondu .2s ease;
+}
+.relire { display: flex; gap: 14px; align-items: center; width: min(660px, 100%); padding: 16px 18px; box-shadow: 0 0 0 2px var(--ligne); }
+.relire-portrait { width: 88px; flex: none; }
+.relire-portrait svg { width: 100%; height: auto; display: block; }
+.relire-corps { flex: 1; min-width: 0; }
+.relire-texte { margin: 0 0 12px; font-size: 1.25rem; line-height: 1.45; }
+.relire-boutons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* ---------- Coach : « Lit-elle vraiment ? » et réglages ---------- */
+.interrupteur-texte { display: flex; flex-direction: column; gap: 2px; }
+.interrupteur-aide { font-weight: 400; font-size: .88rem; color: var(--encre-douce); }
+.ligne-stat-nb { color: var(--encre-douce); font-weight: 400; font-size: .9rem; }
+.barre-stat.reussite span { background: var(--sarcelle); }
+.stats-lecture { margin-top: 14px; }
+.stats-lecture .stat-val { font-size: 1.25rem; }
+.stats-lecture .stat-label { text-align: center; line-height: 1.2; }
+.conseil-lecture { margin: 14px 0 0; padding: 10px 14px; border-radius: var(--rayon-petit); background: var(--moutarde-claire, #fbefcf); line-height: 1.45; }
+
+/* =========================================================================
+   Téléphone (portrait 360-430 px, paysage ≤ 500 px de haut) — la tablette n'est pas concernée
+   ========================================================================= */
 @media (max-width: 600px) {
   .hud-planete-textes span { display: none; }
-  .dialogue { flex-direction: column; align-items: center; text-align: center; }
+  .dialogue { flex-direction: column; align-items: center; text-align: center; padding: 14px; gap: 8px; }
   .dialogue-portrait { width: 84px; height: 84px; }
-  .dialogue-texte { padding-right: 0; }
+  .dialogue-texte { padding-right: 0; font-size: 1.2rem; }
   .dialogue-boutons { justify-content: center; }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stats-lecture .stat-label { font-size: .8rem; }
+  /* HUD : objectif et bulle d'Alvin plus compacts, texte sur toute la largeur */
+  .hud { padding: 10px; gap: 8px; }
+  .hud-objectif { font-size: .85rem; padding: 5px 12px; max-width: 100%; }
+  .hud-objectif-barre { width: 64px; flex: none; }
+  .hud-bulle { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: start; gap: 6px 10px; padding: 10px; }
+  .hud-bulle-portrait { width: 48px; height: 48px; }
+  .hud-bulle-texte { font-size: 1.15rem; max-height: 46vh; overflow-y: auto; }
+  .hud-bulle-actions { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; }
+  .relire { flex-direction: column; text-align: center; padding: 14px; gap: 8px; }
+  .relire-portrait { width: 64px; }
+  .relire-texte { font-size: 1.15rem; }
+  .relire-boutons { justify-content: center; }
+  .relire-boutons .btn { flex: 1 1 140px; }
+  /* écrans à défilement : en-tête plus bas */
+  .entete-simple { padding: 10px 14px; gap: 12px; }
+  .entete-simple h1 { font-size: 1.6rem; }
+  .carnet { padding: 0 12px 20px; }
+  .carnet-onglets { align-self: stretch; flex-wrap: nowrap; }
+  .carnet-onglets > button { flex: 1 1 0; min-width: 0; padding: 8px 6px; font-size: .98rem; }
+  .carnet-grille { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); }
+  .carnet-portrait { width: 88px; height: 88px; }
+  .carnet-role { font-size: .85rem; }
+  .coach-grille { padding: 0 12px 24px; gap: 12px; }
+  .bloc { padding: 16px 14px; }
+  .ligne-stat { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) 52px; gap: 8px; }
+  .config-carte { padding: 18px 16px; }
+  .portrait-config { width: 100px; }
+  .config-carte h1 { font-size: 1.9rem; }
+  .histoire { padding: 18px 16px; }
+  .histoire-page { min-height: 0; }
+  .portrait-histoire { width: 130px; }
+  .histoire-texte { font-size: 1.25rem; }
+  .portrait-titre { width: 150px; }
+  /* Voyager : la carte de l'espace garde la place des noms ; l'écran défile si besoin */
+  .ecran-espace { overflow-y: auto; }
+  .espace-intro { font-size: 1rem; }
+  .espace-planetes { flex: 1 0 auto; min-height: 620px; }
+  .espace-planete { --astre: 96px; width: 210px; }
+  .espace-nom { font-size: 1.1rem; }
+  .espace-detail { font-size: .92rem; }
+}
+/* Voyager sur téléphone : la route un peu remontée pour que le nom de la dernière planète tienne */
+@media (orientation: portrait) and (max-width: 600px) { .espace-planete { top: calc(var(--yp) - 2.5%); } .espace-route { inset: -2.5% 0 2.5%; } }
+@media (orientation: landscape) and (max-height: 500px) { .espace-planete { top: calc(var(--y) - 8%); } .espace-route { inset: -8% 0 8%; } }
+/* Téléphone étroit : les 5 boutons du HUD tiennent sur une ligne (cibles de 48 px) */
+@media (max-width: 430px) {
+  .hud-actions { gap: 6px; }
+  .hud-bouton { width: 48px; height: 48px; }
+  .hud-etoiles { padding: 6px 10px; font-size: 1rem; }
+  .hud-planete { padding: 4px 12px 4px 4px; }
+  .hud-vignette { width: 38px; height: 38px; }
+  .clavier { grid-template-columns: repeat(3, 64px); gap: 8px; }
+}
+/* Téléphone en paysage : très peu de hauteur */
+@media (orientation: landscape) and (max-height: 500px) {
+  .hud { padding: 8px 10px; gap: 6px; }
+  .hud-bouton { width: 48px; height: 48px; }
+  .hud-vignette { width: 36px; height: 36px; }
+  .hud-planete { padding: 4px 12px 4px 4px; }
+  .hud-objectif { font-size: .85rem; padding: 4px 12px; }
+  .hud-bulle { width: min(760px, 100%); padding: 8px 10px; }
+  .hud-bulle-portrait { width: 48px; height: 48px; }
+  .hud-bulle-texte { font-size: 1.1rem; max-height: 40vh; overflow-y: auto; }
+  .dialogue-fond { padding: 8px; }
+  .dialogue { padding: 10px 14px; gap: 12px; max-height: calc(100dvh - 16px); overflow-y: auto; }
+  .dialogue-portrait { width: 72px; height: 72px; }
+  .dialogue-texte { font-size: 1.15rem; margin: 2px 0 6px; }
+  .dialogue-avancee { margin-bottom: 6px; }
+  .relire-fond { padding: 8px; }
+  .relire { padding: 10px 14px; }
+  .relire-portrait { width: 56px; }
+  .relire-texte { font-size: 1.1rem; margin-bottom: 8px; }
+  /* fenêtres : contenu compact, clavier à droite (coffre, code coach) */
+  .modal-fond { padding: 8px; }
+  .modal { padding: 12px 18px 14px; max-height: calc(100dvh - 16px); }
+  .modal h2 { font-size: 1.35rem; margin: 0 0 4px; }
+  .modal p { font-size: 1.05rem; margin: 4px 0; }
+  .modal-boutons { margin-top: 10px; }
+  .portrait-modal { width: 72px; }
+  .piece-chef { width: 96px; height: 96px; }
+  .piece-objet { width: 72px; height: 72px; margin-bottom: 10px; }
+  .planete-sauvee { transform: scale(.7); margin: -24px auto -30px; }
+  .modal-coffre, .modal-code {
+    width: min(720px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 22px; align-items: center; align-content: center;
+  }
+  .modal-coffre > :not(.clavier), .modal-code > :not(.clavier) { grid-column: 1; }
+  .modal-coffre > .clavier, .modal-code > .clavier { grid-column: 2; grid-row: 1 / span 6; }
+  .modal-coffre .clavier .touche, .modal-code .clavier .touche { height: 52px; }
+  .modal-coffre .clavier, .modal-code .clavier { gap: 6px; grid-template-columns: repeat(3, 64px); }
+  .modal-coffre .en-ligne { font-size: 1.8rem; margin: 6px 0; }
+  .reponse-ligne { height: 56px; }
+  .code-points { margin: 6px 0 10px; }
+  /* écrans du menu */
+  .entete-simple { padding: 6px 14px; }
+  .entete-simple h1 { font-size: 1.5rem; }
+  .ecran-titre { padding: 10px 16px; }
+  .titre-contenu { gap: 8px; }
+  .portrait-titre { width: 96px; }
+  .titre-jeu { font-size: 2.2rem; }
+  .ecran-histoire, .ecran-config { padding: 10px 16px; }
+  .histoire { padding: 12px 18px; gap: 8px; width: min(720px, 100%); }
+  .histoire-page { min-height: 0; flex-direction: row; gap: 16px; text-align: left; }
+  .portrait-histoire { width: 96px; flex: none; }
+  .histoire-texte { font-size: 1.2rem; }
+  .config-carte { width: min(620px, 100%); padding: 14px 20px; }
+  .portrait-config { width: 72px; }
+  .config-carte h1 { font-size: 1.6rem; }
+  /* Voyager : planètes plus petites, la carte défile si besoin */
+  .ecran-espace { overflow-y: auto; }
+  .espace-intro { font-size: .95rem; margin-bottom: 0; }
+  .espace-planetes { flex: 1 0 auto; min-height: 290px; }
+  .espace-planete { --astre: 78px; width: 190px; }
+  .espace-nom { font-size: 1.05rem; margin-top: 2px; }
+  .espace-detail { font-size: .88rem; }
+  .espace-ici { font-size: .8rem; }
+  .voyage-fusee svg { width: 72px; height: 72px; }
 }

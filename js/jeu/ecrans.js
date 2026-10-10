@@ -44,11 +44,40 @@ const Ecrans = (() => {
     return el;
   }
 
-  function interrupteur(label, valeur, surChange) {
+  // Typographie française : espace insécable avant ; : ! ? » et après « (pas de signe seul en début de ligne)
+  const typo = t => String(t).replace(/ ([;:!?»])/g, ' $1').replace(/« /g, '« ');
+
+  function interrupteur(label, valeur, surChange, aide) {
     return h('label', { class: 'interrupteur' },
-      h('span', { class: 'interrupteur-texte' }, label),
+      h('span', { class: 'interrupteur-texte' }, label, aide && h('span', { class: 'interrupteur-aide' }, typo(aide))),
       h('input', { type: 'checkbox', checked: !!valeur, onchange: e => { surChange(e.target.checked); Store.sauver(); } }),
       h('span', { class: 'glissiere', 'aria-hidden': 'true' }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Interrupteur « assistant vocal » (barre du haut du jeu et du panneau de résolution)
+  // Un seul toucher coupe ou rallume la voix automatique d'Alvin (Store.reglerAssistantVocal) ;
+  // tous les boutons affichés se mettent à jour ensemble (événement « assistant-vocal »).
+  // ---------------------------------------------------------------------------
+  function majBoutonVoix(b) {
+    const actif = Store.assistantVocal();
+    b.classList.toggle('coupee', !actif);
+    b.setAttribute('aria-pressed', String(actif));
+    b.setAttribute('aria-label', actif ? 'Assistant vocal activé (toucher pour le couper)' : 'Assistant vocal coupé (toucher pour le rallumer)');
+    b.title = actif ? 'Couper la voix d’Alvin' : 'Rallumer la voix d’Alvin';
+  }
+  function basculerVoix() {
+    const actif = !Store.assistantVocal();
+    Store.reglerAssistantVocal(actif);
+    if (!actif && typeof Voix !== 'undefined') Voix.stop();
+    document.querySelectorAll('.btn-voix').forEach(majBoutonVoix);
+    document.dispatchEvent(new CustomEvent('assistant-vocal', { detail: { actif } }));
+    UI.toast(actif ? 'Alvin parle de nouveau tout seul.' : 'Alvin ne parle plus tout seul. Touche un haut-parleur pour l’écouter.');
+  }
+  function boutonVoix(classe = '') {
+    const b = h('button', { class: 'btn-rond btn-voix ' + classe, type: 'button', 'data-action': 'assistant-vocal', onclick: () => { Sons.clic(); basculerVoix(); } }, ic('haut-parleur'));
+    majBoutonVoix(b);
+    return b;
   }
 
   function champ(label, input, aide) {
@@ -411,10 +440,24 @@ const Ecrans = (() => {
 
     const nouveauCode = h('input', { class: 'champ', type: 'text', inputmode: 'numeric', maxlength: '4', placeholder: 'Nouveau code', autocomplete: 'off' });
 
+    // Assistant vocal : le même réglage que le bouton haut-parleur du jeu (alvinParle + lectureAuto)
+    const caseLecture = interrupteur('Lecture automatique des problèmes', R().alvinParle && R().lectureAuto, v => { R().lectureAuto = v; },
+      'Alvin lit l’énoncé à voix haute en ouvrant chaque problème.');
+    const inputLecture = caseLecture.querySelector('input');
+    const majLecture = () => { inputLecture.disabled = !R().alvinParle; inputLecture.checked = R().alvinParle && R().lectureAuto; };
+    const caseAssistant = interrupteur('Assistant vocal (Alvin parle tout seul)', R().alvinParle, v => {
+      Store.reglerAssistantVocal(v);
+      if (!v && typeof Voix !== 'undefined') Voix.stop();
+      majLecture();
+    }, 'Coupé : Alvin ne parle plus de lui-même ; l’enfant peut toujours toucher un haut-parleur pour l’écouter. Le bouton haut-parleur en haut du jeu fait la même chose.');
+    caseAssistant.classList.add('interrupteur-assistant');
+    majLecture();
+
     UI.ecran('ecran-coach',
       entete('Espace coach', retour),
       h('div', { class: 'coach-grille' },
         h('section', { class: 'bloc carte-papier' }, h('h2', null, 'Suivi'), suivi()),
+        h('section', { class: 'bloc carte-papier bloc-lecture' }, h('h2', null, `Lit-${Store.G('elle', 'il')} vraiment ?`), suiviLecture()),
         h('section', { class: 'bloc carte-papier' },
           h('h2', null, 'Enfant'),
           champ('Prénom', champPrenom),
@@ -436,8 +479,8 @@ const Ecrans = (() => {
             })))),
         h('section', { class: 'bloc carte-papier' },
           h('h2', null, 'Voix et sons'),
-          interrupteur('Alvin parle tout seul', R().alvinParle, v => { R().alvinParle = v; }),
-          interrupteur('Lecture automatique des problèmes', R().lectureAuto, v => { R().lectureAuto = v; }),
+          caseAssistant,
+          caseLecture,
           interrupteur('Petits sons', R().sons, v => { R().sons = v; }),
           h('div', { class: 'champ-bloc' }, h('span', { class: 'champ-label' }, 'Vitesse de la voix'),
             segmente([{ v: 0.8, label: 'Lente' }, { v: 0.95, label: 'Normale' }, { v: 1.1, label: 'Rapide' }], R().vitesse, v => { R().vitesse = v; Store.sauver(); })),
@@ -514,9 +557,62 @@ const Ecrans = (() => {
       h('div', { class: 'lignes-stats' }, parNotion)];
   }
 
+  // « Lit-elle vraiment ? » : réussite sur les problèmes qui obligent à lire (nombre piège, mot-piège,
+  // information manquante) comparée aux problèmes ordinaires, temps avant de répondre, conseil pour l'adulte.
+  // Seuls les problèmes enregistrés avec leurs mesures de lecture (res.lecture) sont comptés.
+  function suiviLecture() {
+    const D = Store.data;
+    const J = D.journal.filter(j => j.lecture).slice(-60);
+    const elle = Store.G('elle', 'il');
+    if (J.length < 3) {
+      return h('p', { class: 'petit' }, `Après quelques problèmes, vous verrez ici si ${elle} lit vraiment les énoncés : réussite sur les problèmes à piège comparée aux problèmes ordinaires, et temps de lecture.`);
+    }
+    const pct = L => (L.length ? Math.round((100 * L.filter(Store.reussi).length) / L.length) : null);
+    const groupes = [
+      ['Avec un nombre inutile', J.filter(j => j.pieges > 0)],
+      ['Mot-piège (« gagne » pour une soustraction…)', J.filter(j => j.motPiege)],
+      ['« Il manque une information »', J.filter(j => j.typeReponse === 'impossible')],
+      ['Problèmes ordinaires', J.filter(j => !(j.pieges > 0) && !j.motPiege && (j.typeReponse || 'nombre') === 'nombre')],
+    ];
+    const lignes = groupes.map(([nom, L]) => {
+      const p = pct(L);
+      return h('div', { class: 'ligne-stat' },
+        h('span', { class: 'ligne-stat-nom' }, typo(nom), h('span', { class: 'ligne-stat-nb' }, ` (${L.length})`)),
+        h('span', { class: 'barre-stat reussite' }, h('span', { style: { width: (p || 0) + '%' } })),
+        h('span', { class: 'ligne-stat-val' }, p == null ? '–' : p + ' %'));
+    });
+    const mesures = J.filter(j => typeof j.lecture.ms === 'number');
+    const moyenne = mesures.length ? mesures.reduce((s, j) => s + j.lecture.ms, 0) / mesures.length / 1000 : null;
+    const parMot = mesures.length ? mesures.reduce((s, j) => s + j.lecture.ms / Math.max(1, j.lecture.mots), 0) / mesures.length / 1000 : null;
+    const rapides = J.filter(j => j.lecture.rapide).length;
+    const devines = J.filter(Store.devine).length;
+    const virgule = x => x.toFixed(1).replace('.', ',');
+
+    // Conseil : le plus utile d'abord
+    const [, pieges] = groupes[0], [, mots] = groupes[1], [, manque] = groupes[2], [, ordinaires] = groupes[3];
+    const ecart = (L) => (L.length >= 3 && ordinaires.length >= 3 ? pct(ordinaires) - pct(L) : 0);
+    let conseil;
+    if (rapides / J.length > 0.3) conseil = `${Store.G('Elle', 'Il')} répond souvent avant d'avoir eu le temps de lire. Avant de toucher un nombre, demandez-lui de lire l'histoire à voix haute (ou de l'écouter jusqu'au bout), puis de la raconter avec ses mots.`;
+    else if (ecart(mots) >= 20) conseil = `Les mots « gagne », « perd », « de plus » ${elle === 'elle' ? 'la' : 'le'} trompent : ${elle} choisit l'opération d'après un mot. Demandez-lui de raconter l'histoire et de dire qui a le plus, avant de choisir + ou −.`;
+    else if (ecart(manque) >= 20) conseil = `Quand il manque une information, ${elle} calcule quand même. Prenez l'habitude de demander : « Est-ce qu'on a tout ce qu'il faut pour répondre ? »`;
+    else if (ecart(pieges) >= 20) conseil = `${Store.G('Elle', 'Il')} utilise tous les nombres de l'énoncé. Demandez-lui, pour chaque nombre : « Est-ce qu'il sert à répondre à la question ? »`;
+    else conseil = `${Store.G('Elle', 'Il')} lit bien les énoncés : les pièges ne ${elle === 'elle' ? 'la' : 'le'} gênent pas plus que les problèmes ordinaires. Continuez à l'encourager à lire jusqu'au bout.`;
+
+    return [
+      h('p', { class: 'petit' }, `Réussite (3 étoiles, ou 2 sans erreur d'opération) sur les ${J.length} derniers problèmes, selon le piège :`),
+      h('div', { class: 'lignes-stats' }, lignes),
+      h('div', { class: 'stats stats-lecture' },
+        stat('Temps moyen avant de répondre', moyenne == null ? '–' : virgule(moyenne) + ' s'),
+        stat('Par mot de l’énoncé', parMot == null ? '–' : virgule(parMot) + ' s'),
+        stat('Réponses trop rapides', `${rapides} / ${J.length}`),
+        stat('Résolus en devinant', `${devines} / ${J.length}`)),
+      h('p', { class: 'conseil-lecture' }, h('b', null, 'Conseil : '), typo(conseil)),
+    ];
+  }
+
   function stat(label, valeur) {
     return h('div', { class: 'stat' }, h('span', { class: 'stat-val' }, String(valeur)), h('span', { class: 'stat-label' }, label));
   }
 
-  return { config, titre, histoire, espace, carnet, coach, demanderCode, NOTIONS, ic, segmente, etoile, decorEtoiles };
+  return { config, titre, histoire, espace, carnet, coach, demanderCode, NOTIONS, ic, segmente, etoile, decorEtoiles, boutonVoix, basculerVoix };
 })();

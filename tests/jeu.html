@@ -63,6 +63,9 @@
   <script src="../js/problemes/banques/paquets-2.js"></script>
   <script src="../js/problemes/banques/marche-1.js"></script>
   <script src="../js/problemes/banques/marche-2.js"></script>
+  <script src="../js/problemes/banques/plusmoins-3.js"></script>
+  <script src="../js/problemes/banques/paquets-3.js"></script>
+  <script src="../js/problemes/banques/marche-3.js"></script>
   <!-- Planètes et moteur du monde -->
   <script src="../js/monde/mondes.js"></script>
   <script src="../js/monde/mondes/plusmoins.js"></script>
@@ -106,6 +109,8 @@
     const ecrire = () => {
       rapport.tempsVirtuel = Math.round(performance.now() - debut) + ' ms';
       sortie.textContent = JSON.stringify(rapport, null, 1);
+      // dans un cadre de tests/telephone.html (format téléphone) : le rapport est recopié par la page parente
+      if (window.parent !== window) window.parent.postMessage({ rapportJeu: sortie.textContent }, '*');
     };
     // majeur = false : vérification répétée (chaque problème…) comptée mais listée seulement si elle échoue
     function verif(nom, ok, detail, majeur = true) {
@@ -288,6 +293,8 @@
             const el = $$r(`.donnee[data-k="${k}"]`).find(x => x.classList.contains('cliquable'));
             if (el) { taper(el, 'donnée ' + k); await pause(5); }
           }
+          // problème impossible (il manque une donnée) : le bon geste est « Il manque une information ! »
+          if (p.typeReponse === 'impossible') taper($r('[data-action="manque"]'), 'il manque une information');
           return;
         case 'plan': {
           const q = p.etapes[0].question;
@@ -348,6 +355,10 @@
       if (premierPanneau) {
         premierPanneau = false;
         verif('panneau de résolution au-dessus du jeu (HUD caché dessous)', getComputedStyle($('#resolution')).position === 'fixed' && document.elementFromPoint(innerWidth - 30, 30) !== $('.hud-bouton'));
+        const bv = $r('.res-haut .btn-voix');
+        const rb = bv && bv.getBoundingClientRect();
+        verif('assistant vocal : bouton aussi dans la barre du haut du panneau de résolution, visible et touchable (≥ 44 px)',
+          !!bv && rb.width >= 44 && rb.height >= 44 && rb.right <= innerWidth && document.elementFromPoint(rb.left + rb.width / 2, rb.top + rb.height / 2) === bv, rb && [rb.width, rb.height, rb.right]);
       }
       const faites = new Set();
       let dernier = -1;
@@ -366,6 +377,17 @@
         etapes.push(d.etape);
         dernier = d.compteur;
         await agir(d, mode, faites);
+        // « Tu vas très vite ! » : le robot répond bien plus vite qu'une lectrice ; son premier geste de réponse est
+        // ignoré et Alvin propose de relire. On touche « Je relis », puis on refait l'étape.
+        const relire = $r('.relire-fond');
+        if (relire) {
+          rapport.relire = (rapport.relire || 0) + 1;
+          verif('lecture : geste trop rapide → Alvin propose de relire ou de réécouter (geste ignoré)',
+            !!$('[data-action="relire"]', relire) && !!$('[data-action="relire-ecouter"]', relire) && /très vite/.test(texte(relire)), texte(relire), false);
+          taper($('[data-action="relire"]', relire), 'je relis');
+          verif('lecture : « Je relis » ferme le conseil', !$r('.relire-fond'), null, false);
+          dernier = -1;
+        }
       }
       throw new Error('problème interminable : ' + etapes.join(' > '));
     }
@@ -510,6 +532,11 @@
         { problemes: stat('Problèmes'), etoiles: stat('Étoiles'), amis: stat('Amis') });
       verif('coach : statistiques par étape et par planète', $$('.ecran-coach .ligne-stat').length >= 7);
       verif('coach : grades réglables pour les notions jouables (3)', $$('.ecran-coach .bloc .champ-bloc .segmente').length >= 3);
+      const bl = $('.ecran-coach .bloc-lecture');
+      verif('coach : bloc « Lit-elle vraiment ? » (réussite selon le piège, temps de lecture, conseil)',
+        !!bl && texte($('h2', bl)) === 'Lit-elle vraiment ?' && $$('.ligne-stat', bl).length === 4 && $$('.stat', bl).length === 4 && /Conseil/.test(texte($('.conseil-lecture', bl))), bl && texte(bl).slice(0, 300));
+      const ia = $('.ecran-coach .interrupteur-assistant input');
+      verif('coach : l\'interrupteur « Assistant vocal » reflète le réglage du bouton haut-parleur', !!ia && ia.checked === D.reglages.alvinParle);
       arret('coach');
       const inter = $$('.ecran-coach .interrupteur').find(l => texte(l).startsWith('Petits sons'));
       const caseSons = $('input', inter);
@@ -583,6 +610,19 @@
       verif(`${id} : HUD (habitants aidés)`, texte($('.hud-planete-textes span')) === `${aides} / ${monde.pnj.length} habitants aidés`, texte($('.hud-planete-textes span')));
       verif(`${id} : HUD (étoiles)`, texte($('.hud-etoiles-valeur')) === UI.fmt(Store.data.etoiles), texte($('.hud-etoiles-valeur')));
       if (premiere) verif(`${id} : Alvin raconte l'arrivée`, !$('.hud-bulle').hidden && texte($('.hud-bulle-texte')) === norm(monde.arrivee), texte($('.hud-bulle-texte')));
+      if (premiere && id === 'plusmoins') {
+        // interrupteur « assistant vocal » : un toucher coupe/rallume alvinParle + lectureAuto, sauvegardé, icône barrée si coupé
+        const bv = $('.hud .btn-voix');
+        const R = Store.data.reglages;
+        const avant = R.alvinParle;
+        verif('assistant vocal : bouton dans la barre du haut du jeu (barré quand coupé)', !!bv && bv.classList.contains('coupee') === !avant, bv && bv.className);
+        cliquer(bv, 'assistant vocal');
+        const s1 = lireSauvegarde().reglages;
+        verif('assistant vocal : un toucher change la voix automatique ET la lecture automatique (sauvegardé)',
+          R.alvinParle === !avant && R.lectureAuto === !avant && s1.alvinParle === !avant && s1.lectureAuto === !avant && bv.classList.contains('coupee') === avant, { R, s1 });
+        cliquer(bv, 'assistant vocal');
+        verif('assistant vocal : second toucher → retour à l\'état de départ', R.alvinParle === avant && R.lectureAuto === avant && bv.classList.contains('coupee') === !avant);
+      }
       // entre les deux blocs du haut du HUD, un toucher doit arriver à la carte
       const a = $('.hud-planete').getBoundingClientRect(), b = $('.hud-actions').getBoundingClientRect();
       if (b.left - a.right > 24 && Math.abs(a.top - b.top) < 40) {
@@ -751,6 +791,30 @@
           !!res && ap.journal === avant.journal + 1 && ap.resolus === avant.resolus + 1 && ap.faits[p.id] === k + 1
           && ap.etoiles === avant.etoiles + res.etoiles && j.pnj === p.id && j.planete === monde.id && j.etoiles === res.etoiles && j.id === run.probleme.id,
           { avant, ap, res }, false);
+        // « Lit-elle vraiment ? » : mesures de lecture dans le journal ; le robot va trop vite → problème « deviné »,
+        // le suivant de cet habitant doit obliger à lire
+        const L = j.lecture || {};
+        verif(`${p.nom} n°${k + 1} : mesures de lecture enregistrées (temps, mots, type, pièges)`,
+          typeof L.ms === 'number' && L.mots > 0 && L.seuil >= 2000 && typeof L.rapide === 'boolean' && j.typeReponse === (run.probleme.typeReponse || 'nombre')
+          && j.position === (run.probleme.position || 'fin') && j.pieges === (run.probleme.distracteurs || []).length && typeof j.motPiege === 'boolean',
+          { lecture: L, typeReponse: j.typeReponse, position: j.position, pieges: j.pieges }, false);
+        verif(`${p.nom} n°${k + 1} : problème trop rapide → le suivant de l'habitant obligera à lire`,
+          !L.rapide || !!J().etat.aLire[p.id], { rapide: L.rapide, aLire: J().etat.aLire }, false);
+        if (L.forcee) {
+          st.forces = (st.forces || 0) + 1;
+          const pb = run.probleme;
+          verif(`${p.nom} n°${k + 1} : problème « à lire » (piège, question pas à la fin, mot-piège ou information manquante)`,
+            (pb.distracteurs || []).length > 0 || pb.position !== 'fin' || Problemes.estMotPiege(pb) || pb.typeReponse === 'impossible',
+            { id: pb.id, position: pb.position, pieges: pb.distracteurs }, false);
+        }
+        // variété : jamais deux fois le même type (structure + réponse) dans les 4 problèmes d'un habitant,
+        // ni deux problèmes consécutifs de la planète du même type (sauf banque trop petite : compté dans le rapport)
+        const sig = x => x.structure + '/' + (x.typeReponse || 'nombre');
+        const avecHab = Store.data.journal.filter(x => x.planete === monde.id && x.pnj === p.id).slice(-(k + 1));
+        const sigsHab = avecHab.map(sig);
+        if (new Set(sigsHab).size !== sigsHab.length) rapport.varieteHabitant = (rapport.varieteHabitant || []).concat(`${p.nom} : ${sigsHab.join(', ')}`);
+        const deuxDerniers = Store.data.journal.filter(x => x.planete === monde.id).slice(-2);
+        if (deuxDerniers.length === 2 && sig(deuxDerniers[0]) === sig(deuxDerniers[1])) rapport.varietePlanete = (rapport.varietePlanete || 0) + 1;
         verif(`${p.nom} n°${k + 1} : HUD étoiles à jour`, texte($('.hud-etoiles-valeur')) === UI.fmt(Store.data.etoiles), texte($('.hud-etoiles-valeur')), false);
         st.problemes++;
         st.etoiles += res ? res.etoiles : 0;
@@ -914,6 +978,8 @@
       verif(`${id} : 12 nouveaux amis dans le carnet`, monde.pnj.every(p => Store.data.carnet.includes(id + ':' + p.id)));
       verif(`${id} : tous les coffres ouverts (${monde.coffres.length})`, monde.coffres.every(c => et.coffres.includes(c.id)));
       verif(`${id} : pièce de fusée reçue`, st.piece);
+      verif(`${id} : variété — un habitant ne pose jamais deux fois le même type de problème, deux problèmes consécutifs diffèrent`,
+        !(rapport.varieteHabitant || []).length && !rapport.varietePlanete, { habitants: rapport.varieteHabitant, consecutifs: rapport.varietePlanete });
       verifierCarte('fin de planète');
       const md = J().moteur.debug();
       verif(`${id} : moteur sans erreur`, !md.erreur, md.erreur);

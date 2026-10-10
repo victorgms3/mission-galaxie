@@ -10,6 +10,10 @@
  * généralisée à tous les schémas (pt, cmp, grp, fois, frise) et aux problèmes à deux étapes (D2).
  * Grade 1 : toutes les étapes ; grade 2 : la question est surlignée d'office ; grade 3 : schéma facultatif
  * (s'il est passé et que l'opération est fausse, le schéma devient obligatoire).
+ * Types de réponse (probleme.typeReponse) : 'nombre' ; 'qui' et 'ouinon' (après le calcul, l'étape « La réponse » montre
+ * la comparaison des deux nombres puis les phrases) ; 'impossible' (à l'étape « Les infos », le bouton « Il manque une
+ * information ! », présent dans tous les problèmes, est la bonne réponse et termine le problème). La question peut être
+ * au début, au milieu ou à la fin de l'énoncé : elle est repérée par .est-question, pas par sa place.
  */
 const Resolution = (() => {
   const { h } = UI;
@@ -58,6 +62,9 @@ const Resolution = (() => {
     frise: { debut: 'début', duree: 'durée', fin: 'fin' },
   };
   const NOMBRES = ['zéro', 'un', 'deux', 'trois', 'quatre'];
+  // Type de réponse attendu : 'nombre' (ordinaire), 'qui', 'ouinon' (on compare après le calcul), 'impossible' (il manque une donnée)
+  const typeDe = def => def.typeReponse || (def.reponse && def.reponse.type) || 'nombre';
+  const piegesDe = def => def.distracteurs || (def.distracteur ? [def.distracteur] : []);
 
   let TEMPO = 1;  // multiplie tous les délais (les tests l'abaissent)
   let P = null;   // problème en cours
@@ -391,23 +398,52 @@ const Resolution = (() => {
     return { el, ajouter(k) { msg.remove(); el.append(carteInfo(k, 'res-apparait')); } };
   }
 
+  // Le bouton « Il manque une information ! » est présent dans TOUS les problèmes (sinon il trahirait le type
+  // 'impossible') : c'est la bonne réponse quand une donnée du calcul n'est écrite nulle part, une erreur sinon.
   function etapeInfos() {
     const E = ui.enonce;
     const def = P.def;
+    const impossible = typeDe(def) === 'impossible';
     let intro = '';
     if (!E.question().classList.contains('question-trouvee')) E.question().classList.add('question-trouvee');
     if (P.niveau >= 2) intro = 'La question est en violet. ';
-    const besoin = new Set(def.utiles);
+    // problème impossible : il faut aussi la donnée absente (on ne peut donc jamais finir en touchant des nombres)
+    const besoin = new Set([...def.utiles, ...(impossible ? def.reponse.manquantes || [] : [])]);
     E.donnees().forEach(d => { if (!d.classList.contains('trouvee') && !d.classList.contains('barree')) d.classList.add('cliquable'); });
     const plateau = plateauInfos([...P.trouvees]);
-    ui.atelier.append(consigne('loupe', 'Touche les nombres utiles'), plateau.el);
+    const btnManque = h('button', { class: 'btn secondaire res-btn-manque', type: 'button', 'data-action': 'manque', onclick: () => ilManque() },
+      ic('question', 22), 'Il manque une information !');
+    ui.atelier.append(consigne('loupe', 'Touche les nombres utiles'), plateau.el, h('div', { class: 'res-manque' }, btnManque));
     dit(intro + 'Quels nombres servent à répondre ? Touche-les dans le problème.');
     const combien = n => (n <= 4 ? NOMBRES[n] : String(n));
-
-    P.indice = () => donnerIndice([
+    const nbPieges = piegesDe(def).length;
+    const attention = nbPieges === 1 ? ' Attention : un des nombres du problème ne sert à rien !'
+      : nbPieges > 1 ? ` Attention : ${combien(nbPieges)} nombres du problème ne servent à rien !` : '';
+    const messages = [
       'Relis bien la question en violet. De quoi parle-t-elle ?',
-      `Il faut ${combien(besoin.size)} nombres pour répondre.` + (def.distracteur ? ' Attention : un des nombres du problème ne sert à rien !' : ''),
-    ], () => E.donnees().filter(d => besoin.has(d.dataset.k) && !d.classList.contains('trouvee')).forEach(d => d.classList.add('res-clignote')));
+      `Il faut ${combien(besoin.size)} nombres pour répondre.` + attention,
+    ];
+    if (impossible) messages.push("Cherche bien… Un des nombres n'est écrit nulle part dans le problème ! Quand il manque une information, on ne peut pas calculer : touche « Il manque une information ! ».");
+    P.indice = () => donnerIndice(messages, impossible
+      ? () => btnManque.classList.add('res-clignote')
+      : () => E.donnees().filter(d => besoin.has(d.dataset.k) && !d.classList.contains('trouvee')).forEach(d => d.classList.add('res-clignote')));
+
+    function ilManque() {
+      if (P.verrou) return;
+      if (impossible) {
+        son('bien');
+        P.verrou = true;
+        E.reinitialiser();
+        btnManque.classList.remove('res-clignote');
+        btnManque.classList.add('juste');
+        const manque = def.reponse.manque ? def.reponse.manque + ' ' : '';
+        ditPuis(`${choix(BRAVO)} Oui, il manque une information ! ${manque}On ne peut pas répondre à la question.`, { humeur: 'content', indice: false }, finProbleme);
+        return;
+      }
+      erreur('infos');
+      UI.secouer(btnManque);
+      dit("Non, il ne manque rien : tous les nombres pour répondre sont écrits dans le problème. Cherche-les !", { humeur: 'reflechit' });
+    }
 
     E.surTap = e => {
       const d = e.target.closest('.donnee');
@@ -902,7 +938,9 @@ const Resolution = (() => {
         plateauInfos(cles, { nouvelles: e === 0 ? [] : ['x'] }).el,
       ];
     } else {
-      aide = P.schemaFait ? schemaRempli(et.schema) : plateauInfos(def.utiles).el;
+      // 'qui' / 'ouinon' : la valeur à comparer ne sert qu'à la fin, on ne montre ici que les nombres du calcul
+      const cles = typeDe(def) === 'nombre' ? def.utiles : def.utiles.filter(k => k === op.gk || k === op.dk);
+      aide = P.schemaFait ? schemaRempli(et.schema) : plateauInfos(cles).el;
     }
     garnir(ui.atelier, consigne('plus', 'Choisis l’opération'), aide, boutons, ligne);
     if (P.deux) dit(e === 0 ? `Pour savoir « ${et.question} », quelle opération faut-il faire ?` : 'Maintenant, la grande question ! Quelle opération faut-il faire ?');
@@ -1047,19 +1085,38 @@ const Resolution = (() => {
   }
 
   // ---------- La phrase réponse ----------
+  // Encadré de comparaison (types 'qui' et 'ouinon') : chaque nombre avec son étiquette, le résultat calculé en jaune
+  function boiteComparaison(cmp) {
+    return h('div', { class: 'res-comparaison' }, cmp.map((c, i) => [
+      i ? h('span', { class: 'res-comparaison-ou', 'aria-hidden': 'true' }, '?') : null,
+      h('div', { class: 'res-comparaison-item' + (c.k === 'r' ? ' resultat' : '') },
+        h('span', { class: 'res-comparaison-label' }, typo(c.label)),
+        h('b', null, c.texte)),
+    ]));
+  }
+
   function etapeReponse() {
     const def = P.def;
+    const type = typeDe(def);
     const der = def.etapes[def.etapes.length - 1];
+    const cmp = (type === 'qui' || type === 'ouinon') && def.reponse.comparaison ? def.reponse.comparaison : null;
     const options = melange([{ t: def.reponse.juste, ok: true }, ...def.reponse.fausses.map(t => ({ t, ok: false }))]);
     const liste = listeChoix(options, 'res-phrase-choix phrase-reponse', choisir);
     const unite = der.unite && der.op.formats.r === 'nombre' ? ' ' + der.unite : '';
     ui.atelier.append(
-      consigne('crayon', 'Choisis la phrase réponse'),
+      consigne('crayon', cmp ? 'Compare, puis choisis la réponse' : 'Choisis la phrase réponse'),
       rappel('La question', def.question),
-      h('p', { class: 'res-resultat' }, 'Ton résultat : ', h('b', null, F(der.op.r, der.op.formats.r) + unite)),
+      cmp ? boiteComparaison(cmp) : h('p', { class: 'res-resultat' }, 'Ton résultat : ', h('b', null, F(der.op.r, der.op.formats.r) + unite)),
       liste.el);
-    dit('Quelle phrase répond à la question ?');
-    P.indice = () => donnerIndice([
+    if (!cmp) dit('Quelle phrase répond à la question ?');
+    else dit(type === 'qui' ? 'Compare les nombres. Alors, qui est-ce ? Choisis la phrase qui répond à la question.'
+      : 'Compare les deux nombres. Alors, oui ou non ? Choisis la phrase qui répond à la question.');
+    const enMots = () => cmp.map(c => `${c.label} : ${c.texte}`).join(' ; ');
+    P.indice = () => donnerIndice(cmp ? [
+      'Relis la question : ' + def.question,
+      () => `Compare : ${enMots()}. ` + (type === 'qui' && def.reponse.plus === false ? 'Quel est le plus petit nombre ?' : 'Quel est le plus grand nombre ?'),
+      'Cherche la phrase qui est vraie quand on compare les nombres.',
+    ] : [
       'Relis la question : ' + def.question,
       'Cherche la phrase qui parle de la même chose que la question.',
     ], () => { if (liste.bonne) liste.bonne.classList.add('res-clignote'); });
@@ -1078,7 +1135,8 @@ const Resolution = (() => {
       btn.classList.add('faux');
       btn.disabled = true;
       UI.secouer(btn);
-      dit('Non, cette phrase ne répond pas à la question. Relis-la : ' + def.question, { humeur: 'reflechit' });
+      dit(cmp ? 'Non, ce n’est pas ça. Compare bien les nombres, puis relis la question : ' + def.question
+        : 'Non, cette phrase ne répond pas à la question. Relis-la : ' + def.question, { humeur: 'reflechit' });
     }
   }
 
@@ -1097,7 +1155,11 @@ const Resolution = (() => {
     const titre = etoiles === 3 ? 'Parfait !' : etoiles === 2 ? 'Bravo !' : 'Problème résolu !';
     const encouragement = etoiles === 1 ? "Tu as persévéré : c'est comme ça qu'on progresse !" : etoiles === 2 ? 'Encore un petit effort pour avoir les 3 étoiles !' : '';
     const merci = `${P.pnj.nom || "L'habitant"} te dit merci !`;
-    const ops = def.etapes.map(e => `${F(e.op.g, e.op.formats.g)} ${e.op.signe} ${F(e.op.d, e.op.formats.d)} = ${F(e.op.r, e.op.formats.r)}`);
+    const type = typeDe(def);
+    // problème impossible : pas de calcul ; 'qui' / 'ouinon' : le calcul puis la comparaison (20 billes < 23 billes)
+    const ops = type === 'impossible' ? [] : def.etapes.map(e => `${F(e.op.g, e.op.formats.g)} ${e.op.signe} ${F(e.op.d, e.op.formats.d)} = ${F(e.op.r, e.op.formats.r)}`);
+    const cmp = (type === 'qui' || type === 'ouinon') && def.reponse.comparaison;
+    if (cmp && cmp.length === 2) ops.push(`${cmp[0].texte} ${cmp[0].valeur > cmp[1].valeur ? '>' : '<'} ${cmp[1].texte}`);
     const carte = h('div', { class: 'res-fenetre res-fin res-apparait', role: 'alertdialog', 'aria-label': titre },
       h('div', { class: 'res-fin-portraits' },
         h('span', { class: 'res-fin-alvin', html: Widgets.portraitAlvin('content') }),
@@ -1151,7 +1213,7 @@ const Resolution = (() => {
       actif: true,
       etape: P.fin ? 'fin' : et.id, e: et.e || 0, idx: P.idx, compteur: P.compteur,
       etapes: P.etapes.map(x => x.id + (x.e != null && P.deux ? x.e + 1 : '')),
-      verrou: P.verrou, niveau: P.niveau, deux: P.deux,
+      verrou: P.verrou, niveau: P.niveau, deux: P.deux, typeReponse: typeDe(P.def),
       erreurs: { ...P.erreurs }, aides: P.aides, outils: P.outils,
       schemaFait: P.schemaFait, schemaPasse: P.schemaPasse, schemaForce: P.schemaForce,
       placement: { ...P.placement }, xTrouve: P.xTrouve,

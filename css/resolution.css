@@ -186,7 +186,7 @@
 .res-carte.en-glisse { opacity: .35; }
 .res-carte.dans-case {
   min-height: 42px; min-width: 0; max-width: 100%; padding: 3px 10px; font-size: 19px; border-bottom-width: 2px;
-  white-space: normal; text-align: center; overflow-wrap: anywhere;
+  white-space: normal; text-align: center; overflow-wrap: break-word;
 }
 .res-carte.dans-case.inconnue { font-size: 26px; min-width: 46px; }
 .res-fantome { position: fixed; z-index: 100; pointer-events: none; margin: 0; transform: translate(-50%, -50%) rotate(-3deg) scale(1.06); }
@@ -426,11 +426,25 @@
 .res-phrase-choix:active { transform: translateY(2px); border-bottom-width: 2px; }
 .res-phrase-choix.juste { background: var(--sarcelle-claire); border-color: var(--sarcelle); color: var(--sarcelle-fonce); font-weight: 700; }
 .res-phrase-choix.faux { background: var(--rouge-clair); border-color: #f1c2bf; color: var(--encre-douce); text-decoration: line-through 2px var(--rouge); }
+/* Bouton « Il manque une information ! » (étape Les infos, présent dans tous les problèmes) */
+.res-manque { display: flex; justify-content: center; }
+.res-btn-manque { min-height: 50px; gap: 8px; font-size: 19px; }
+.res-btn-manque.juste { background: var(--sarcelle-claire); border-color: var(--sarcelle); color: var(--sarcelle-fonce); }
+/* Comparaison (réponses « Qui… ? » et « oui / non ») : le résultat calculé en jaune */
+.res-comparaison { display: flex; align-items: stretch; justify-content: center; gap: 10px; }
+.res-comparaison-item {
+  flex: 1 1 0; min-width: 0; max-width: 260px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  padding: 10px 12px; border-radius: var(--rayon-petit); background: var(--sarcelle-claire); border: 2px solid #a8dbd3; text-align: center;
+}
+.res-comparaison-item.resultat { background: var(--moutarde-claire); border-color: var(--moutarde); }
+.res-comparaison-label { font-size: 17px; font-weight: 700; line-height: 1.2; color: var(--encre-douce); overflow-wrap: anywhere; }
+.res-comparaison-item b { font-size: 24px; line-height: 1.2; }
+.res-comparaison-ou { align-self: center; flex: none; font: 700 28px var(--police-titre); color: var(--lavande-fonce); }
 .res-resultat { margin: 0; font-size: 20px; text-align: center; }
 .res-resultat b { font-size: 26px; padding: 2px 10px; border-radius: 8px; background: var(--sarcelle-claire); color: var(--sarcelle-fonce); }
 
 /* ---------- Fenêtres (fin, quitter) ---------- */
-.res-fond { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; background: rgba(35, 38, 58, .5); overflow: hidden; }
+.res-fond { position: absolute; inset: 0; z-index: 10; display: grid; grid-template-rows: minmax(0, 1fr); place-items: center; padding: 16px; background: rgba(35, 38, 58, .5); overflow: hidden; }
 .res-fenetre {
   position: relative; width: min(560px, 100%); max-height: 100%; overflow-y: auto;
   background: var(--papier); border-radius: 24px; border: 2px solid var(--ligne); padding: 22px 26px 24px; text-align: center;
@@ -473,22 +487,24 @@
   #resolution *, #resolution *::before, #resolution *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition: none !important; }
 }
 
-/* ---------- Portrait (tablette tenue droite) et petits écrans ---------- */
-@media (orientation: portrait), (max-width: 860px) {
+/* ---------- Portrait (tablette tenue droite, téléphone) et petits écrans pas trop bas ---------- */
+/* (un téléphone en paysage, ≤ 500 px de haut, garde 2 colonnes : voir plus bas) */
+@media (orientation: portrait), (max-width: 860px) and (min-height: 501px) {
   .res-corps {
     grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto;
     grid-template-areas: "enonce" "alvin" "atelier"; overflow-y: auto; align-content: start; gap: 12px; padding: 12px 14px 18px;
   }
-  /* min-height: auto : chaque bloc garde la hauteur de son contenu, c'est .res-corps qui défile */
+  /* min-height: auto : chaque bloc garde la hauteur de son contenu, c'est .res-corps qui défile
+     (l'énoncé ne doit pas défiler lui-même : sinon la grille l'écrase à une ou deux lignes sur un téléphone) */
   .res-atelier { overflow: visible; min-height: auto; }
   .res-alvin { min-height: auto; }
-  .res-enonce { max-height: none; }
+  .res-enonce { max-height: none; overflow: visible; }
   .res-pnj-textes span { display: none; }
   .res-etapes li { height: 38px; min-width: 38px; padding: 0 7px; }
   .res-alvin-portrait { width: 78px; }
 }
 /* Paysage (2 colonnes) : clavier un peu plus compact pour que l'aide ouverte (horloge, porte-monnaie) tienne sans défiler */
-@media (orientation: landscape) and (min-width: 861px) {
+@media (orientation: landscape) and (min-width: 861px), (orientation: landscape) and (max-height: 500px) {
   /* le titre de l'étape reste visible quand l'atelier défile (aide ouverte : table, porte-monnaie, horloge) */
   .res-atelier > .res-consigne { position: sticky; top: -16px; z-index: 2; background: var(--blanc); margin: -16px -18px 0; padding: 14px 18px 8px; border-radius: var(--rayon) var(--rayon) 0 0; }
   #resolution .res-clavier { gap: 8px; }
@@ -497,17 +513,92 @@
 @media (max-width: 560px) {
   .res-pas-boutons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #resolution { font-size: 18px; }
-  .res-haut { padding: 8px 10px; gap: 8px; }
-  .res-enonce-texte { font-size: 22px; }
+  .res-haut { padding: 8px 10px; gap: 6px 8px; }
+  /* téléphone : croix, habitant et voix sur la 1re ligne, les étapes en dessous sur toute la largeur */
+  .res-haut .btn-rond { width: 52px; height: 52px; }
+  .res-pnj-portrait { width: 46px; height: 46px; }
+  .res-voix { margin-left: auto; }
+  .res-etapes { order: 3; flex: 1 0 100%; margin: 0; justify-content: center; gap: 3px; }
+  .res-etapes li { height: 34px; min-width: 30px; padding: 0 4px; }
+  .res-etapes li:not(.active) svg { width: 16px; height: 16px; }
+  .res-etapes li.active { padding: 0 10px 0 7px; }
+  .res-etapes li .nom { font-size: 15px; }
+  .res-corps { padding: 10px 10px 16px; gap: 10px; }
+  .res-enonce { padding: 10px 14px 14px; }
+  .res-enonce-texte { font-size: 21px; line-height: 1.6; }
+  .res-alvin-portrait { width: 58px; }
+  .res-bulle { padding: 10px 12px; }
+  .res-bulle-texte { font-size: 18px; }
+  .res-atelier { padding: 14px 12px 16px; }
   .res-consigne { font-size: 20px; }
+  .res-consigne-icone { width: 40px; height: 40px; }
+  .res-carte.dans-case { font-size: 17px; padding: 3px 6px; }
+  .res-btn-manque { padding-left: 12px; padding-right: 12px; gap: 8px; }
   .btn-op, .res-choix-op.quatre .btn-op { width: 74px; height: 88px; }
   .btn-op .signe { font-size: 42px; }
   .btn-op .mot { font-size: 11px; }
   :where(#resolution .clavier) { grid-template-columns: repeat(3, 62px); }
   .pose { --cellule: 44px; }
+  .res-btn-manque { width: 100%; justify-content: center; font-size: 18px; }
+  .res-comparaison { gap: 6px; }
+  .res-comparaison-item { padding: 8px 8px; }
+  .res-comparaison-label { font-size: 15px; }
+  .res-comparaison-item b { font-size: 20px; }
 }
 @media (max-height: 640px) and (orientation: landscape) {
   .res-enonce-texte { font-size: 22px; line-height: 1.55; }
   .res-alvin-portrait { width: 70px; }
   .res-bulle-texte { font-size: 18px; }
+}
+/* Téléphone en paysage (≤ 500 px de haut) : 2 colonnes, l'énoncé (qui défile) et Alvin à gauche, l'atelier à droite ;
+   bandeau du haut sur une seule ligne */
+@media (orientation: landscape) and (max-height: 500px) {
+  #resolution { font-size: 17px; }
+  .res-haut { padding: 4px 10px; gap: 8px; flex-wrap: nowrap; }
+  .res-haut .btn-rond { width: 46px; height: 46px; }
+  .res-pnj-portrait { width: 40px; height: 40px; }
+  .res-pnj-textes b { font-size: 18px; }
+  .res-pnj-textes span { display: none; }
+  .res-etapes { flex-wrap: nowrap; gap: 3px; min-width: 0; }
+  .res-etapes li { height: 32px; min-width: 30px; padding: 0 4px; }
+  .res-etapes li:not(.active) svg { width: 16px; height: 16px; }
+  .res-etapes li.active { padding: 0 10px 0 7px; }
+  .res-etapes li .nom { font-size: 15px; }
+  .res-corps {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas: "enonce atelier" "alvin alvin"; gap: 6px 10px; padding: 8px 10px 8px;
+  }
+  .res-enonce { max-height: none; min-height: 0; padding: 6px 12px 10px; }
+  .res-enonce-titre { font-size: 15px; }
+  .res-enonce-entete .btn-rond { width: 44px; height: 44px; }
+  .res-enonce-texte { font-size: 19px; line-height: 1.5; }
+  .res-alvin { align-items: center; gap: 6px; }
+  .res-alvin-portrait { width: 46px; margin-top: 0; }
+  .res-bulle { display: flex; align-items: center; gap: 10px; padding: 4px 8px 4px 14px; }
+  .res-bulle::before, .res-bulle::after { top: 50%; margin-top: -9px; }
+  .res-bulle::after { margin-top: -7px; }
+  .res-bulle-texte { flex: 1; min-width: 0; margin: 0; font-size: 17px; line-height: 1.35; max-height: 25vh; overflow-y: auto; }
+  .res-bulle-actions { flex-wrap: nowrap; gap: 6px; }
+  .res-bulle-actions .btn-rond { width: 44px; height: 44px; }
+  .res-btn-indice { min-height: 44px; padding: 4px 10px; font-size: 16px; }
+  .res-atelier { padding: 10px 12px 12px; gap: 10px; }
+  .res-atelier > .res-consigne { top: -10px; margin: -10px -12px 0; padding: 8px 12px 6px; }
+  .res-consigne { font-size: 19px; }
+  .res-consigne-icone { width: 36px; height: 36px; }
+  .res-centre { gap: 12px; }
+  .btn.grand { min-height: 52px; padding: 8px 20px; font-size: 19px; }
+  #resolution .res-clavier .touche, :where(#resolution .touche) { height: 50px; }
+  .res-fond { padding: 8px; }
+  .res-fenetre { padding: 12px 18px 14px; }
+  .res-fin h2 { font-size: 30px; }
+  .res-fin-alvin { width: 64px; }
+  .res-fin-pnj { width: 50px; }
+  .res-etoile { width: 48px; }
+  .res-fin-etoiles { margin: 2px 0 6px; }
+  .res-fin-ops { font-size: 21px; margin-bottom: 4px; }
+  .res-fin .res-fin-phrase { font-size: 18px; padding: 6px 12px; margin-bottom: 6px; }
+  .res-fin .res-fin-merci { font-size: 16px; margin-bottom: 8px; }
+}
+@media (max-width: 380px) {
+  .res-btn-manque { font-size: 16px; }
 }

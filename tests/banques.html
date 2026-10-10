@@ -11,7 +11,7 @@
   <script src="../js/problemes/moteur.js"></script>
   <script>
   'use strict';
-  const FICHIERS = ['plusmoins-1', 'plusmoins-2', 'paquets-1', 'paquets-2', 'marche-1', 'marche-2', 'tictac-1', 'tictac-2', 'defi-1', 'defi-2'];
+  const FICHIERS = ['plusmoins-1', 'plusmoins-2', 'plusmoins-3', 'paquets-1', 'paquets-2', 'paquets-3', 'marche-1', 'marche-2', 'marche-3', 'tictac-1', 'tictac-2', 'defi-1', 'defi-2'];
   const params = new URLSearchParams(location.search);
   const choisis = params.get('fichier') ? params.get('fichier').split(',') : FICHIERS;
   const TOURS = parseInt(params.get('tours') || '40', 10);
@@ -25,7 +25,7 @@
   function charger(nom) {
     return new Promise(res => {
       const s = document.createElement('script');
-      s.src = `../js/problemes/banques/${nom}.js`;
+      s.src = nom === 'exemples' ? 'exemples.js' : `../js/problemes/banques/${nom}.js`;   // ?fichier=exemples : tests/exemples.js
       s.onload = () => { chargement.charges.push(nom); res(); };
       s.onerror = () => { chargement.absents.push(nom); res(); };
       document.body.append(s);
@@ -57,7 +57,53 @@
     Problemes.ajouter = ajouterOriginal;
 
     const erreurs = [], avertissements = [], exemples = [];
-    const stats = { total: 0, parNotion: {}, parStructure: {}, parNiveau: { 1: 0, 2: 0, 3: 0 }, parTheme: {} };
+    const stats = {
+      total: 0, parNotion: {}, parStructure: {}, parNiveau: { 1: 0, 2: 0, 3: 0 }, parTheme: {}, parType: {},
+      motsPiegesGrade1: 0, positions: {}, pieges: { 0: 0, 1: 0, 2: 0 }, piegesContexte: 0, ouinon: { oui: 0, non: 0 },
+    };
+    const PA = Problemes.perso({ n: 'Inès', g: 'f' }), PB = Problemes.perso({ n: 'Hugo', g: 'm' });
+    const PD = { ils: 'ils', Ils: 'Ils', eux: 'eux' };
+    const rndT = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+    // Vérifications propres au modèle (champs facultatifs : reponse, piegesContexte, questionFin, questionDebut, phrasesDebut)
+    function verifierModele(m) {
+      const E = message => erreurs.push({ id: m.id, message });
+      if (m.reponse != null && !Problemes.TYPES_REPONSE.includes(m.reponse)) E(`reponse inconnue « ${m.reponse} » (nombre, qui, ouinon, impossible)`);
+      if (m.ouiSi != null && m.reponse !== 'ouinon') E('ouiSi sans reponse: \'ouinon\'');
+      if (m.ouiSi != null && typeof m.ouiSi !== 'function' && !['plus', 'moins'].includes(m.ouiSi)) E("ouiSi : 'plus', 'moins' ou une fonction v => booléen");
+      if (m.questionFin != null && typeof m.questionFin !== 'boolean') E('questionFin doit valoir true ou false');
+      let t;
+      try { t = m.texte(PA, PB, PD); } catch (e) { E('texte() : exception ' + e.message); return; }
+      const trous = s => (String(s).match(/\{[abcx](?:\|[^}]*)?\}/g) || []).map(x => x.slice(1, 2)).sort().join('');
+      if (t.phrasesDebut) {
+        if (!Array.isArray(t.phrasesDebut)) E('phrasesDebut doit être un tableau de phrases');
+        else if (trous(t.phrasesDebut.join(' ')) !== trous(t.phrases.join(' '))) E('phrasesDebut : pas les mêmes nombres {a} {b}… que phrases');
+      }
+      if (t.questionDebut != null && (trous(t.questionDebut) !== trous(t.question) || !/\?$/.test(t.questionDebut.trim()))) E('questionDebut : mêmes nombres que question, et finit par « ? »');
+      if (m.reponse === 'qui' && !(Array.isArray(t.candidats) && t.candidats.every(c => c && c.nom && /^[abcr]$/.test(c.k) && c.phrase))) E("'qui' : texte().candidats = [{ nom, k: 'r'|'a'|'b'|'c', phrase }, …]");
+      if (m.reponse === 'ouinon' && !(t.oui && t.non)) E("'ouinon' : texte() doit fournir oui et non");
+      if (m.reponse === 'impossible' && !t.manque) E("'impossible' : texte() doit fournir manque");
+      if (m.piegesContexte != null) {
+        if (!Array.isArray(m.piegesContexte) || !m.piegesContexte.length) { E('piegesContexte doit être un tableau non vide'); return; }
+        stats.piegesContexte++;
+        m.piegesContexte.forEach((pc, j) => {
+          if (!pc || typeof pc.f !== 'function' || typeof pc.v !== 'function') { E(`piegesContexte[${j}] : il faut { f: (A, B) => phrase, v: (niv, rnd) => nombre }`); return; }
+          let ph;
+          try { ph = pc.f(PA, PB, PD); } catch (e) { E(`piegesContexte[${j}].f : exception ${e.message}`); return; }
+          const holes = String(ph).match(/\{[^}]*\}/g) || [];
+          if (holes.length !== 1 || !/^\{d(\|[^}]+)?\}$/.test(holes[0])) E(`piegesContexte[${j}] : la phrase doit contenir exactement un trou {d|unité} (${ph})`);
+          if (!/[.!]$/.test(String(ph).trim())) E(`piegesContexte[${j}] : la phrase doit finir par un point (${ph})`);
+          lint(String(ph).replace(/\{d(\|([^}]*))?\}/, (x, y, u) => '12' + (u ? ' ' + u : ''))).forEach(x => (x.includes('élision') ? avertissements : erreurs).push({ id: m.id, message: `piegesContexte[${j}] : ${x}`, exemple: ph }));
+          if (Problemes.dependDuContexte(ph)) avertissements.push({ id: m.id, message: `piegesContexte[${j}] : la phrase semble dépendre du contexte (pronom) : nommer la personne`, exemple: ph });
+          for (const niv of Problemes.niveauxDe(m)) {
+            for (let k = 0; k < 5; k++) {
+              let val;
+              try { val = pc.v(niv, rndT); } catch (e) { E(`piegesContexte[${j}].v : exception ${e.message}`); return; }
+              if (!Number.isInteger(val) || val < 1) { E(`piegesContexte[${j}].v(${niv}) doit renvoyer un entier ≥ 1 (reçu ${val})`); return; }
+            }
+          }
+        });
+      }
+    }
     const ctx = { enfant: { n: 'Emma', g: 'f' }, amis: [{ n: 'Inès', g: 'f' }, { n: 'Hugo', g: 'm' }], pnj: { n: 'Zubi', g: 'm' } };
 
     for (const notion of Problemes.NOTIONS) {
@@ -68,7 +114,11 @@
         stats.parStructure[m.structure] = (stats.parStructure[m.structure] || 0) + 1;
         (m.themes || ['(aucun)']).forEach(t => { stats.parTheme[t] = (stats.parTheme[t] || 0) + 1; });
         if (!m.themes || !m.themes.length) avertissements.push({ id: m.id, message: 'aucun thème' });
+        verifierModele(m);
+        const typeM = Problemes.typeDe(m);
+        stats.parType[typeM] = (stats.parType[typeM] || 0) + 1;
         const niveaux = Problemes.niveauxDe(m);
+        if (niveaux.includes(1) && Problemes.estMotPiege(m)) stats.motsPiegesGrade1++;
         let exemple = null;
         for (const niv of niveaux) {
           stats.parNiveau[niv]++;
@@ -77,24 +127,54 @@
           for (let i = 0; i < TOURS; i++) {
             let p;
             try {
-              p = Problemes.instancier(m, notion, niv, ctx, { piege: i % 3 === 0 });
+              // 1 tirage sur 3 au naturel (statistiques), les autres forcent les pièges et la place de la question
+              p = Problemes.instancier(m, notion, niv, ctx, i % 3 === 0 ? {} : i % 3 === 1 ? { piege: 2, position: 'debut' } : { piege: 1, position: 'milieu' });
             } catch (e) {
               erreurs.push({ id: m.id, niv, message: 'exception : ' + e.message });
               break;
             }
             if (!p) { rates++; continue; }
             if (!exemple && niv === niveaux[0]) exemple = p;
-            const textes = [...p.oral, p.reponse.juste, ...p.reponse.fausses, ...p.etapes.map(e => e.question || '')];
+            const textes = [...p.oral, p.reponse.juste, ...p.reponse.fausses, p.reponse.manque || '', ...p.etapes.map(e => e.question || '')];
             const tout = textes.join(' | ');
             const pbs = new Set();
             textes.forEach(t => lint(t).forEach(x => pbs.add(x)));
             pbs.forEach(x => (x.includes('élision') ? avertissements : erreurs).push({ id: m.id, niv, message: x, exemple: tout }));
             if (!p.question.trim().endsWith('?')) erreurs.push({ id: m.id, niv, message: 'la question ne finit pas par « ? »', exemple: p.question });
-            p.oral.slice(0, -1).forEach(o => { if (!/[.!]$/.test(o.trim())) erreurs.push({ id: m.id, niv, message: 'phrase sans point final', exemple: o }); });
-            if (p.reponse.fausses.length < 2) erreurs.push({ id: m.id, niv, message: 'il faut au moins 2 phrases fausses' });
-            if (new Set([p.reponse.juste, ...p.reponse.fausses]).size !== p.reponse.fausses.length + 1) erreurs.push({ id: m.id, niv, message: 'phrases réponse identiques', exemple: tout });
-            const rTexte = Problemes.formater(p.vals.r, p.formats.r || 'nombre');
-            if (!p.reponse.juste.includes(rTexte)) erreurs.push({ id: m.id, niv, message: 'la phrase juste ne contient pas le résultat ' + rTexte, exemple: p.reponse.juste });
+            if (p.phrases.filter(ph => ph.question).length !== 1) erreurs.push({ id: m.id, niv, message: 'il faut exactement une question', exemple: tout });
+            p.phrases.forEach((ph, j) => { if (!ph.question && !/[.!]$/.test(p.oral[j].trim())) erreurs.push({ id: m.id, niv, message: 'phrase sans point final', exemple: p.oral[j] }); });
+            stats.positions[p.position] = (stats.positions[p.position] || 0) + (i % 3 === 0 ? 1 : 0);
+            if (i % 3 === 0) stats.pieges[p.distracteurs.length]++;
+            const type = p.typeReponse;
+            if (!Problemes.TYPES_REPONSE.includes(type)) erreurs.push({ id: m.id, niv, message: 'reponse inconnue : ' + type });
+            const minFausses = type === 'nombre' ? 2 : type === 'impossible' ? 0 : 1;
+            if (p.reponse.fausses.length < minFausses) erreurs.push({ id: m.id, niv, message: `il faut au moins ${minFausses} phrase(s) fausse(s)` });
+            if (!p.reponse.juste || new Set([p.reponse.juste, ...p.reponse.fausses]).size !== p.reponse.fausses.length + 1) erreurs.push({ id: m.id, niv, message: 'phrases réponse vides ou identiques', exemple: tout });
+            if (type === 'nombre') {
+              const rTexte = Problemes.formater(p.vals.r, p.formats.r || 'nombre');
+              if (!p.reponse.juste.includes(rTexte)) erreurs.push({ id: m.id, niv, message: 'la phrase juste ne contient pas le résultat ' + rTexte, exemple: p.reponse.juste });
+            }
+            if ((type === 'qui' || type === 'ouinon') && m.structure === 'D2') erreurs.push({ id: m.id, niv, message: `reponse '${type}' impossible avec une structure à deux étapes` });
+            if (type === 'qui') {
+              const cmp = p.reponse.comparaison || [];
+              if (cmp.length < 2) erreurs.push({ id: m.id, niv, message: "'qui' : il faut au moins 2 candidats { nom, k, phrase }" });
+              if (cmp.some(c => !c.label || c.valeur == null)) erreurs.push({ id: m.id, niv, message: "'qui' : candidat sans nom ou clé inconnue", exemple: JSON.stringify(cmp) });
+              if (new Set(cmp.map(c => c.valeur)).size !== cmp.length) erreurs.push({ id: m.id, niv, message: "'qui' : deux candidats à égalité" });
+              if (cmp.some(c => c.k !== 'r' && !p.cartes[c.k])) erreurs.push({ id: m.id, niv, message: "'qui' : la valeur d'un candidat n'est pas écrite dans l'énoncé" });
+              if (!p.reponse.juste.includes(p.reponse.gagnant)) erreurs.push({ id: m.id, niv, message: "'qui' : la phrase du candidat ne contient pas son nom", exemple: p.reponse.juste });
+            }
+            if (type === 'ouinon') {
+              if (!p.cartes.c) erreurs.push({ id: m.id, niv, message: "'ouinon' : la valeur à comparer {c|…} doit être écrite dans l'énoncé (ou la question)" });
+              if (!/^Oui\b/.test(p.reponse.oui ? p.reponse.juste : p.reponse.fausses[0]) || !/^Non\b/.test(p.reponse.oui ? p.reponse.fausses[0] : p.reponse.juste)) erreurs.push({ id: m.id, niv, message: "'ouinon' : oui doit commencer par « Oui », non par « Non »", exemple: tout });
+              if (p.vals.c === p.vals.r) erreurs.push({ id: m.id, niv, message: "'ouinon' : c égal au résultat" });
+              stats.ouinon[p.reponse.oui ? 'oui' : 'non']++;
+            }
+            if (type === 'impossible') {
+              if (!(p.reponse.manquantes || []).length) erreurs.push({ id: m.id, niv, message: "'impossible' : aucune donnée du calcul ne manque dans l'énoncé (retirer {a} ou {b} du texte)", exemple: tout });
+              if (!p.reponse.manque) erreurs.push({ id: m.id, niv, message: "'impossible' : texte manque absent (« On ne sait pas combien… »)" });
+              if (p.utiles.length < 1) erreurs.push({ id: m.id, niv, message: "'impossible' : il faut au moins une donnée utile écrite" });
+            }
+            if ((p.distracteurs || []).some(k => p.vals[k] == null || !p.cartes[k])) erreurs.push({ id: m.id, niv, message: 'phrase piège sans nombre', exemple: tout });
             for (const e of p.etapes) {
               const o = e.op;
               const calc = { '+': o.g + o.d, '−': o.g - o.d, '×': o.g * o.d, '÷': o.g / o.d }[o.signe];
@@ -120,6 +200,16 @@
         if (AVEC_EXEMPLES && exemple) exemples.push(`[${m.id} ${m.structure}] ${exemple.oral.join(' ')} → ${exemple.etapes.map(e => `${e.op.g} ${e.op.signe} ${e.op.d} = ${e.op.r}`).join(' ; ')} | ✔ ${exemple.reponse.juste} | ✘ ${exemple.reponse.fausses.join(' / ')}`);
       }
     }
+    // Auto-test de l'heuristique « phrase qui dépend de la précédente » (place de la question, des pièges)
+    const LIBRES = ['Combien de billes Léa a-t-elle en tout ?', 'Combien de billes reste-t-il à Léa ?', 'Quelle longueur mesurent les deux rubans ensemble ?',
+      'Combien de bonbons chaque ami reçoit-il ?', "Léa a-t-elle assez d'argent pour acheter un livre à 15 € ?", 'Emma achète 3 cahiers à 4 € chacun.',
+      'Le train part en retard.', 'À quelle heure le car arrive-t-il ?', "Combien d'argent le magasin a-t-il gagné aujourd'hui ?", 'Qui a le plus de billes ?'];
+    const LIEES = ['Combien en a-t-elle ?', 'Elle en gagne 5.', "C'est 9 points de plus que Tom.", 'Combien de billes ont-ils en tout ?', 'Ensuite, Tom gagne 4 billes.',
+      'Tom les range dans une boîte.', "Combien d'œufs a-t-il ?", 'Il lui en reste 3.', 'Combien de billes chacun reçoit-il ?', 'Pour les ranger, Léa prend une boîte.',
+      'Léa en mange 3.', 'Combien de pages lui reste-t-il à lire ?', 'Tom a aussi des billes.'];
+    LIBRES.filter(x => Problemes.dependDuContexte(x)).forEach(x => erreurs.push({ id: 'moteur', message: 'dependDuContexte : phrase autonome jugée dépendante', exemple: x }));
+    LIEES.filter(x => !Problemes.dependDuContexte(x)).forEach(x => erreurs.push({ id: 'moteur', message: 'dependDuContexte : phrase dépendante non détectée', exemple: x }));
+
     const uniques = (liste) => {
       const vus = new Set();
       return liste.filter(e => { const k = e.id + '|' + e.message; if (vus.has(k)) return false; vus.add(k); return true; });

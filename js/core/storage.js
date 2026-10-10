@@ -86,12 +86,31 @@ const Store = (() => {
   // État d'une planète (créé à la première visite)
   S.planete = id => {
     if (!S.data.planetes[id]) {
-      S.data.planetes[id] = { resolus: 0, pnj: {}, coffres: [], zones: [1], pos: null, terminee: false };
+      // sigs : types de problèmes (structure/réponse) récents de chaque habitant ; aLire : habitants dont le
+      // prochain problème doit obliger à lire (après un problème résolu « en devinant »)
+      S.data.planetes[id] = { resolus: 0, pnj: {}, coffres: [], zones: [1], pos: null, terminee: false, sigs: {}, aLire: {} };
     }
     return S.data.planetes[id];
   };
 
   S.niveau = notion => S.data.notions[notion].niveau;
+
+  // Assistant vocal : Alvin parle tout seul et lit les problèmes (alvinParle + lectureAuto).
+  // Coupé : plus aucune parole automatique ; les boutons haut-parleur restent utilisables à la demande.
+  S.assistantVocal = () => !!S.data.reglages.alvinParle;
+  S.reglerAssistantVocal = actif => {
+    S.data.reglages.alvinParle = !!actif;
+    S.data.reglages.lectureAuto = !!actif;
+    S.sauver();
+  };
+
+  // « Lit-elle vraiment ? » : un problème est résolu « en devinant » s'il l'a été trop vite pour avoir lu l'énoncé,
+  // ou avec une erreur typique du raccourci (nombre piège touché, mauvaise opération sur un mot-piège,
+  // « Il manque une information » non vu). Mesures enregistrées dans res.lecture (voir Jeu).
+  S.devine = res => {
+    const l = res && res.lecture;
+    return !!(l && (l.rapide || l.piegeTouche || l.opMotPiege || l.manqueNonVu));
+  };
 
   // Un problème résolu : journal, grade de la notion, étoiles, avancée de la planète
   S.enregistrerProbleme = res => {

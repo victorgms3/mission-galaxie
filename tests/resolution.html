@@ -23,7 +23,8 @@
       &banque=paquets-1&n=20           résout automatiquement n problèmes tirés de cette banque, à chaque grade autorisé
       &etape=schema[&e=1]              s'arrête à cette étape (lire, question, infos, plan, schema, operation, calcul, reponse, fin)
          + &faux=1 (calcul faux une fois) &outil=1 (ouvre l'aide) &partiel=1 (une carte posée) &indice=1 (un indice) &passerChoix=1
-      &piege=1|0  &voix=1  &tempo=0.05 (0 = délais nuls)  &vals=a:8,b:6 (valeurs imposées, pour les captures)
+      &position=debut|milieu|fin       place de la question (si le modèle le permet)
+      &piege=1|0|2  &voix=1  &tempo=0.05 (0 = délais nuls)  &vals=a:8,b:6 (valeurs imposées, pour les captures)
       &art=factice                     portraits de tests/art-factice.js si js/art/art.js est absent
   -->
   <div id="toast" class="toast" role="status"></div>
@@ -74,11 +75,12 @@
       return null;
     }
     // &vals=a:8,b:6 : retire jusqu'à obtenir ces valeurs (pour des captures précises)
+    const POSITION = prm('position');   // fin | debut | milieu : place de la question (si le modèle le permet)
     const voulu = prm('vals') ? Object.fromEntries(prm('vals').split(',').map(x => x.split(':')).map(([k, v]) => [k, +v])) : null;
-    function fabriquer(m, notion, niveau, piege) {
+    function fabriquer(m, notion, niveau, piege, position = POSITION) {
       let dernier = null;
       for (let i = 0; i < (voulu ? 500 : 30); i++) {
-        const p = Problemes.instancier(m, notion, niveau, CTX, piege == null ? {} : { piege });
+        const p = Problemes.instancier(m, notion, niveau, CTX, { ...(piege == null ? {} : { piege }), ...(position ? { position } : {}) });
         if (!p) continue;
         dernier = p;
         if (voulu && !Object.entries(voulu).every(([k, v]) => p.vals[k] === v)) continue;
@@ -178,14 +180,22 @@
           if (fauter) { taper($$('.phrase:not(.est-question)')[0], 'phrase'); await pause(5); }
           taper($('.phrase.est-question'), 'question');
           return;
-        case 'infos':
+        case 'infos': {
           await indices();
+          const impossible = p.typeReponse === 'impossible';
           if (fauter && p.distracteur) { taper($(`.donnee[data-k="${p.distracteur}"]`), 'distracteur'); await pause(5); }
+          // erreur : « Il manque une information ! » alors que tout y est
+          if (fauter && !impossible) { taper($('[data-action="manque"]'), 'il manque (à tort)'); await pause(5); }
           for (const k of p.utiles) {
             const el = $$(`.donnee[data-k="${k}"]`).find(x => x.classList.contains('cliquable'));
             if (el) { taper(el, 'donnée ' + k); await pause(5); }
           }
+          if (impossible) {
+            if (D().verrou) throw new Error('problème impossible : les données ont suffi ?');
+            taper($('[data-action="manque"]'), 'il manque une information');
+          }
           return;
+        }
         case 'plan': {
           await indices();
           const q = p.etapes[0].question;
@@ -271,11 +281,16 @@
 
     function attendu(p, niveau, nom) {
       const deux = p.etapes.length > 1;
-      if (nom === 'bon') return { etoiles: 3, erreurs: { question: 0, infos: 0, plan: 0, schema: 0, operation: 0, calcul: 0, reponse: 0 }, aides: 0 };
-      if (nom === 'erreurs') return {
-        etoiles: 1,
-        erreurs: { question: niveau < 2 ? 1 : 0, infos: p.distracteur ? 1 : 0, plan: deux ? 1 : 0, schema: deux ? 0 : 1, operation: deux ? 2 : 1, calcul: deux ? 2 : 1, reponse: 1 },
-      };
+      const zero = { question: 0, infos: 0, plan: 0, schema: 0, operation: 0, calcul: 0, reponse: 0 };
+      if (nom === 'bon') return { etoiles: 3, erreurs: zero, aides: 0 };
+      if (nom === 'erreurs') {
+        // problème impossible : il s'arrête à l'étape des infos (le robot n'y touche que le piège)
+        const erreurs = p.typeReponse === 'impossible'
+          ? { ...zero, question: niveau < 2 ? 1 : 0, infos: p.distracteur ? 1 : 0 }
+          : { question: niveau < 2 ? 1 : 0, infos: (p.distracteur ? 1 : 0) + 1, plan: deux ? 1 : 0, schema: deux ? 0 : 1, operation: deux ? 2 : 1, calcul: deux ? 2 : 1, reponse: 1 };
+        const total = Object.values(erreurs).reduce((a, b) => a + b, 0);
+        return { etoiles: total === 0 ? 3 : total <= 2 ? 2 : 1, erreurs };
+      }
       if (nom === 'passer') return { etoiles: 2, erreurs: { question: 0, infos: 0, plan: 0, schema: 0, operation: 1, calcul: 0, reponse: 0 }, aides: 0 };
       return {};
     }
@@ -296,12 +311,12 @@
 
     async function unRun(m, notion, niveau, nom, extra = {}) {
       const mode = { bon: {}, erreurs: { erreurs: true }, indices: { indices: true }, passer: { passer: true } }[nom];
-      const p = fabriquer(m, notion, niveau, nom === 'erreurs' ? true : extra.piege);
+      const p = fabriquer(m, notion, niveau, nom === 'erreurs' ? true : extra.piege, extra.position || POSITION);
       if (!p) return { id: m.id, niveau, mode: nom, ok: false, problemes: ['instanciation impossible'] };
       let run, pbs;
       try {
         run = await resoudre(p, niveau, { ...mode, glisse: extra.glisse });
-        const att = nom === 'indices' ? { aidesMin: 3 } : attendu(p, niveau, nom);
+        const att = nom === 'indices' ? { aidesMin: p.typeReponse === 'impossible' ? 2 : 3 } : attendu(p, niveau, nom);
         pbs = verifier(run, att);
         if (nom === 'passer' && run.etapesVues.filter(x => x === 'schema').length < 2) pbs.push('le schéma n’a pas été imposé');
       } catch (e) {
@@ -309,7 +324,7 @@
         Resolution.fermer();
       }
       return {
-        id: m.id, niveau, mode: nom, ok: !pbs.length,
+        id: m.id, niveau, mode: nom, ok: !pbs.length, position: p.position, type: p.typeReponse,
         etoiles: run && run.res ? run.res.etoiles : null,
         etapes: run ? run.etapesVues.join(' > ') : '',
         problemes: pbs,
@@ -352,15 +367,16 @@
       for (const { m, notion } of exemples) {
         const niveaux = Problemes.niveauxDe(m);
         for (const niveau of niveaux) {
-          runs.push(await unRun(m, notion, niveau, 'bon', { glisse: niveau === 2 }));
-          runs.push(await unRun(m, notion, niveau, 'erreurs'));
-          if (niveau === 3 && m.structure !== 'D2') runs.push(await unRun(m, notion, niveau, 'passer'));
+          // la question change de place d'un run à l'autre : début, milieu (si possible), fin
+          runs.push(await unRun(m, notion, niveau, 'bon', { glisse: niveau === 2, position: ['debut', 'milieu', 'fin'][niveau - 1] }));
+          runs.push(await unRun(m, notion, niveau, 'erreurs', { position: ['milieu', 'fin', 'debut'][niveau - 1] }));
+          if (niveau === 3 && m.structure !== 'D2' && m.reponse !== 'impossible') runs.push(await unRun(m, notion, niveau, 'passer'));
         }
         runs.push(await unRun(m, notion, niveaux[0], 'indices'));
       }
       runs.push(await testsQuitter());
       const echecs = runs.filter(r => !r.ok);
-      ecrire({ ok: !echecs.length && !erreursJS.length, total: runs.length, echecs, erreursJS, runs: runs.map(r => `${r.ok ? 'ok ' : 'KO '} ${r.id} n${r.niveau || '-'} ${r.mode || ''} ★${r.etoiles == null ? '-' : r.etoiles} | ${r.etapes || ''}`) });
+      ecrire({ ok: !echecs.length && !erreursJS.length, total: runs.length, echecs, erreursJS, runs: runs.map(r => `${r.ok ? 'ok ' : 'KO '} ${r.id} n${r.niveau || '-'} ${r.mode || ''} [${r.type || ''}, question ${r.position || '-'}] ★${r.etoiles == null ? '-' : r.etoiles} | ${r.etapes || ''}`) });
       return;
     }
 
@@ -386,7 +402,7 @@
     const t = trouverModele(id);
     if (!t) { ecrire({ ok: false, erreur: 'exemple inconnu : ' + id }); return; }
     const niveau = parseInt(prm('niveau') || String(Problemes.niveauxDe(t.m)[0]), 10);
-    const piege = prm('piege') == null ? null : prm('piege') === '1';
+    const piege = prm('piege') == null ? null : prm('piege') === '2' ? 2 : prm('piege') === '1';
 
     if (prm('auto') === '1') {
       const nom = prm('erreurs') === '1' ? 'erreurs' : prm('indices') === '1' ? 'indices' : prm('passer') === '1' ? 'passer' : 'bon';
