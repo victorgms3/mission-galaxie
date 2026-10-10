@@ -377,8 +377,23 @@ const Ecrans = (() => {
     };
     rendreAmis();
 
+    // Test de la voix avec diagnostic (pour comprendre une tablette muette)
+    const diagnosticVoix = h('p', { class: 'diagnostic-voix petit', role: 'status' });
+    const testerVoix = texte => {
+      let demarre = false;
+      diagnosticVoix.textContent = 'Test en cours…';
+      const bilan = () => {
+        const d = Voix.diagnostic ? Voix.diagnostic() : { journal: [] };
+        return `Voix françaises trouvées : ${d.voixFr}. Voix choisie : ${d.choisie || 'aucune'}. Détail : ${d.journal.join(' · ') || 'rien'}.`;
+      };
+      Voix.dire(texte, {
+        onSegment: i => { if (i === 0 && !demarre) { demarre = true; diagnosticVoix.textContent = 'La voix a démarré. Si tu n’entends rien, vérifie le volume « média » de la tablette. ' + bilan(); } },
+        onFin: () => { if (!demarre) diagnosticVoix.textContent = 'Aucun son n’a démarré. ' + bilan(); },
+      });
+    };
+
     // Voix : liste triée par qualité
-    const choixVoix = h('select', { class: 'champ', onchange: e => { R().voixNom = e.target.value; Store.sauver(); Voix.choisir(); } });
+    const choixVoix =h('select', { class: 'champ', onchange: e => { R().voixNom = e.target.value; Store.sauver(); Voix.choisir(); } });
     const remplirVoix = () => {
       UI.vider(choixVoix);
       choixVoix.append(h('option', { value: '' }, 'Automatique (la meilleure)'));
@@ -427,7 +442,8 @@ const Ecrans = (() => {
           h('div', { class: 'champ-bloc' }, h('span', { class: 'champ-label' }, 'Vitesse de la voix'),
             segmente([{ v: 0.8, label: 'Lente' }, { v: 0.95, label: 'Normale' }, { v: 1.1, label: 'Rapide' }], R().vitesse, v => { R().vitesse = v; Store.sauver(); })),
           champ('Voix', choixVoix),
-          h('button', { class: 'btn secondaire', onclick: () => Voix.dire(`Bonjour ${prof.prenom} ! Je suis Alvin, le chat astronaute. Le bus part à 8 h 05 et coûte 2 €.`) }, ic('haut-parleur', 20), 'Tester la voix'),
+          h('button', { class: 'btn secondaire', onclick: () => testerVoix(`Bonjour ${prof.prenom} ! Je suis Alvin, le chat astronaute. Le bus part à 8 h 05 et coûte 2 €.`) }, ic('haut-parleur', 20), 'Tester la voix'),
+          diagnosticVoix,
           Voix.conseil && h('p', { class: 'conseil-voix petit' }, Voix.conseil()),
           !Voix.disponible && h('p', { class: 'message-erreur' }, "La synthèse vocale n'est pas disponible sur cet appareil.")),
         h('section', { class: 'bloc carte-papier' },

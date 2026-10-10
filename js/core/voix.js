@@ -284,6 +284,9 @@ const Voix = (() => {
 
   // Sur Android, cancel() agit avec retard et peut effacer la phrase lancée juste après :
   // on n'annule que si quelque chose parle vraiment, et on attend plus longtemps avant de reparler.
+  // Journal des derniers événements de lecture (diagnostic affiché dans l'espace coach)
+  const journal = [];
+  const noter = m => { journal.push(m); if (journal.length > 12) journal.shift(); };
   let dernierArret = 0;
   const delaiApresArret = () => (Date.now() - dernierArret < 600 ? (plateforme.android ? 350 : 80) : 30);
 
@@ -409,6 +412,7 @@ const Voix = (() => {
     const lire = (m, essai, sansVoix = false) => {
       // sansVoix : dernier recours, la voix par défaut du moteur de la tablette (certains moteurs refusent u.voice)
       const voix = sansVoix ? null : voixChoisie;
+      noter(`essai ${essai + 1} : ${voix ? voix.name : "voix par défaut de l'appareil"}`);
       const u = new Enonce(m.texte);
       u.lang = voix ? voix.lang : 'fr-FR';
       if (voix) { try { u.voice = voix; } catch (e) { /* voix refusée : voix par défaut de la langue */ } }
@@ -447,11 +451,12 @@ const Voix = (() => {
         return true;
       };
 
-      u.onstart = () => { if (mien !== jeton) return; demarre = true; annoncer(); };
+      u.onstart = () => { if (mien !== jeton) return; if (!demarre) noter('la voix a démarré'); demarre = true; annoncer(); };
       u.onend = () => { if (mien === jeton) terminer(); };
       u.onerror = e => {
         if (mien !== jeton || termine) return;
         const err = (e && e.error) || '';
+        noter('erreur : ' + (err || 'inconnue'));
         if (err === 'not-allowed') { termine = true; arreterSurveillance(); bloque(liste); fin(); return; }
         if (err === 'interrupted' || err === 'canceled') { terminer(); return; }
         if (!demarre && changerDeVoix()) return;
@@ -481,6 +486,7 @@ const Voix = (() => {
         if (!demarre && !vuParler && t > (essai ? 3000 : 5000)) {
           // rien ne sort : on essaie une autre voix, sinon on abandonne la lecture (sans bloquer le jeu)
           try { synth.cancel(); } catch (e) { /* rien */ }
+          noter('aucun son au bout de quelques secondes');
           if (changerDeVoix()) return;
           termine = true;
           arreterSurveillance();
@@ -535,6 +541,7 @@ const Voix = (() => {
     dire, stop, voixFr, choisir, qualite, listeTriee, conseil, pourOral, decouper, score, _injecter,
     actuelle: () => voixChoisie,
     enLecture: () => !!lecture,
+    diagnostic: () => ({ voixFr: voixFr().length, choisie: voixChoisie ? voixChoisie.name : null, android: plateforme.android, journal: journal.slice() }),
     enPanne: () => [...enPanne.keys()].filter(nom => (enPanne.get(nom) || 0) > Date.now()),
     get disponible() { return !!synth; },
   };
