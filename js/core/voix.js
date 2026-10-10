@@ -282,13 +282,22 @@ const Voix = (() => {
     surveillances.clear();
   }
 
+  // Sur Android, cancel() agit avec retard et peut effacer la phrase lancée juste après :
+  // on n'annule que si quelque chose parle vraiment, et on attend plus longtemps avant de reparler.
+  let dernierArret = 0;
+  const delaiApresArret = () => (Date.now() - dernierArret < 600 ? (plateforme.android ? 350 : 80) : 30);
+
   function stop() {
+    const enVol = !!enCours || !!(synth && (synth.speaking || synth.pending));
     jeton++;
     nettoyer();
     enCours = null;
     lecture = null;
     marquerBouton(null);
-    if (synth) { try { synth.cancel(); } catch (e) { /* rien */ } }
+    if (synth && enVol) {
+      try { synth.cancel(); } catch (e) { /* rien */ }
+      dernierArret = Date.now();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -397,8 +406,9 @@ const Voix = (() => {
       lire(morceaux[n++], 0);
     };
 
-    const lire = (m, essai) => {
-      const voix = voixChoisie;
+    const lire = (m, essai, sansVoix = false) => {
+      // sansVoix : dernier recours, la voix par défaut du moteur de la tablette (certains moteurs refusent u.voice)
+      const voix = sansVoix ? null : voixChoisie;
       const u = new Enonce(m.texte);
       u.lang = voix ? voix.lang : 'fr-FR';
       if (voix) { try { u.voice = voix; } catch (e) { /* voix refusée : voix par défaut de la langue */ } }
@@ -426,13 +436,14 @@ const Voix = (() => {
       };
       // Voix en panne (souvent : voix en ligne sans internet) → on réessaie avec la suivante
       const changerDeVoix = () => {
-        if (!voix || essai >= 2) return false;
+        if (!voix || essai >= 3) return false;
         signalerPanne(voix);
         choisir();
-        if (!voixChoisie || voixChoisie === voix) return false;
+        // une autre voix française, sinon la voix par défaut du moteur
+        const autre = !!voixChoisie && voixChoisie.name !== voix.name && !estEnPanne(voixChoisie);
         termine = true;
         arreterSurveillance();
-        setTimeout(() => { if (mien === jeton) lire(m, essai + 1); }, 80);
+        setTimeout(() => { if (mien === jeton) lire(m, essai + 1, !autre); }, plateforme.android ? 350 : 80);
         return true;
       };
 
@@ -467,7 +478,7 @@ const Voix = (() => {
         // onend perdu : plus rien ne parle depuis deux tours de surveillance
         silence = (demarre || vuParler) && !synth.speaking && !synth.pending ? silence + 1 : 0;
         if (silence >= 2) { terminer(); return; }
-        if (!demarre && !vuParler && t > 5000) {
+        if (!demarre && !vuParler && t > (essai ? 3000 : 5000)) {
           // rien ne sort : on essaie une autre voix, sinon on abandonne la lecture (sans bloquer le jeu)
           try { synth.cancel(); } catch (e) { /* rien */ }
           if (changerDeVoix()) return;
@@ -487,7 +498,7 @@ const Voix = (() => {
     };
 
     // petit délai : Chrome ignore parfois une phrase lancée juste après cancel()
-    setTimeout(suivant, 80);
+    setTimeout(suivant, delaiApresArret());
   }
 
   // ---------------------------------------------------------------------------

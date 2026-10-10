@@ -94,6 +94,44 @@
     autre.click(); await pause(300);
     verifier('bouton ordinaire : relance au lieu d’arrêter', Voix.enLecture(), etat(autre));
     Voix.stop();
+
+    // 10. Android simulé : cancel() agit 250 ms plus tard et efface ce qui a été lancé entre-temps
+    const android = {
+      speaking: false, pending: false, paused: false, _u: null, _t: null, _annule: 0, demarrages: 0,
+      getVoices: () => [{ name: 'Voix test', lang: 'fr-FR', localService: true }],
+      speak(u) {
+        if (Date.now() - this._annule < 250) return; // phrase effacée par le cancel tardif : aucun événement
+        this.speaking = true; this._u = u; this.demarrages++;
+        setTimeout(() => u.onstart && u.onstart(), 10);
+        this._t = setTimeout(() => { this.speaking = false; this._u = null; if (u.onend) u.onend(); }, 800);
+      },
+      cancel() { this._annule = Date.now(); clearTimeout(this._t); const u = this._u; this._u = null; if (u && this.speaking) { this.speaking = false; if (u.onerror) u.onerror({ error: 'interrupted' }); } },
+      pause() {}, resume() {}, addEventListener() {},
+    };
+    Voix._injecter(android, { Enonce: FauxEnonce, android: true });
+    let finA = false;
+    Voix.dire('Premier texte.'); await pause(150);
+    Voix.dire(ENONCE, { onFin: () => { finA = true; } }); await pause(4000);
+    verifier('Android : une lecture qui en remplace une autre est bien entendue', finA && android.demarrages >= 2, { demarrages: android.demarrages, finA });
+
+    // 11. moteur qui refuse la voix choisie (certains moteurs Samsung) → voix par défaut du moteur
+    const refuse = {
+      speaking: false, pending: false, paused: false, sansVoix: 0,
+      getVoices: () => [{ name: 'Voix capricieuse', lang: 'fr-FR', localService: true }],
+      speak(u) {
+        if (u.voice) return; // silence total si une voix est imposée
+        this.sansVoix++; this.speaking = true;
+        setTimeout(() => u.onstart && u.onstart(), 10);
+        setTimeout(() => { this.speaking = false; if (u.onend) u.onend(); }, 500);
+      },
+      cancel() {}, pause() {}, resume() {}, addEventListener() {},
+    };
+    Voix._injecter(refuse, { Enonce: FauxEnonce, android: true });
+    let finR = false;
+    Voix.dire('Bonjour, je suis Alvin.', { onFin: () => { finR = true; } }); await pause(9000);
+    verifier('voix refusée : repli sur la voix par défaut de la tablette', finR && refuse.sansVoix >= 1, { sansVoix: refuse.sansVoix, finR });
+    Voix.stop();
+
     const ok = verifs.every(v => v.ok);
     document.getElementById('resultat').textContent = JSON.stringify({ ok, verifs }, null, 1);
   })().catch(err => { document.getElementById('resultat').textContent = JSON.stringify({ ok: false, erreur: String(err && err.stack || err) }); });

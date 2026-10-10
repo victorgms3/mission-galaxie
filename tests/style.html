@@ -454,7 +454,8 @@
 
       // F. Voix muette (rien ne démarre) : on abandonne après quelques secondes sans bloquer le jeu
       r = await scenario({ voix: [VOIX_SIM[0]], textes: ['Bonjour.'], comportement: () => 'muet', delai: 9000 });
-      scen.voixMuette = { ok: r.fin && r.duree < 7000, duree: r.duree, segments: r.segments };
+      scen.voixMuette = { ok: r.fin && r.duree < 10000, // 5 s + dernier essai avec la voix par défaut du moteur (3 s)
+        duree: r.duree, segments: r.segments };
 
       // G. La voix choisie dans l'espace coach est respectée
       Store.data.reglages.voixNom = 'Google français';
